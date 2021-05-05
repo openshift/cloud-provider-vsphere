@@ -1,8 +1,8 @@
-# See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
-
 approvers:
-  - sig-cloud-provider-leads
-  - cloud-provider-vsphere-maintainers
+  - JoelSpeed
+  - elmiko
+  - lobziik
+  - Fedosin
 
-reviewers:
-  - cloud-provider-vsphere-maintainers
+component: "Cloud Compute"
+subcomponent: "Cloud Controller Manager"
