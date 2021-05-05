@@ -3,6 +3,10 @@
 approvers:
   - sig-cloud-provider-leads
   - cloud-provider-vsphere-maintainers
+  - JoelSpeed
+  - Danil-Grigorev
+  - elmiko
+  - lobziik
 
 reviewers:
   - cloud-provider-vsphere-maintainers
