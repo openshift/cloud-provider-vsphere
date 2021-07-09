@@ -17,10 +17,12 @@ limitations under the License.
 package vsphere
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -270,11 +272,21 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 
 			ips := returnIPsFromSpecificFamily(family, v.IpAddress)
 
+			// sort the IPs
+			rawIPs := make([]net.IP, 0, len(ips))
 			for _, ip := range ips {
 				parsedIP := net.ParseIP(ip)
 				if parsedIP == nil {
 					return fmt.Errorf("can't parse IP: %s", ip)
 				}
+				rawIPs = append(rawIPs, parsedIP)
+			}
+			sort.Slice(rawIPs, func(i, j int) bool {
+				return bytes.Compare(rawIPs[i], rawIPs[j]) < 0
+			})
+
+			for _, parsedIP := range rawIPs {
+				ip := parsedIP.String()
 
 				// prioritize address masking over networkname
 				if !foundInternal && internalNetworkSubnet != nil && internalNetworkSubnet.Contains(parsedIP) {
