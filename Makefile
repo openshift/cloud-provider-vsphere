@@ -307,24 +307,8 @@ push-ci-image:
 print-ci-image:
 	@$(MAKE) --no-print-directory -C hack/images/ci print
 
-################################################################################
-##                                  CODE-GEN                                  ##
-################################################################################
-.PHONY: update-codegen verify-codegen
-update-codegen:
-	hack/update-codegen.sh
-verify-codegen:
-	hack/verify-codegen.sh
+## --------------------------------------
+## Openshift specific include
+## --------------------------------------
 
-################################################################################
-##                                  HELPERS                                  ##
-################################################################################
-.PHONY: squash
-squash:
-	hack/git-squash.sh $(MESSAGE)
-
-.PHONY: docker-image
-docker-image:
-	docker build \
-	-f cluster/images/controller-manager/Dockerfile \
-	-t "$(IMAGE):$(BRANCH_NAME)" . \
+include openshift.mk
