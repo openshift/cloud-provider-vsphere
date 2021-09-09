@@ -351,5 +351,11 @@ squash:
 docker-image:
 	docker build \
 	-f cluster/images/controller-manager/Dockerfile \
-	-t "$(IMAGE):$(BRANCH_NAME)" \
-	--build-arg "VERSION=${VERSION}" . \
+	-t "$(IMAGE):$(BRANCH_NAME)" . \
+
+
+## --------------------------------------
+## Openshift specific include
+## --------------------------------------
+
+include openshift.mk
