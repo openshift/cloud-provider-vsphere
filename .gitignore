@@ -21,10 +21,6 @@
 # Ignore the binaries copied into the staging areas.
 /cluster/images/controller-manager/vsphere-cloud-controller-manager*
 
-# Ignore vendor at the root of the project. Please note that
-# /vendor/bitbucket.org/ww/goautoneg is versioned forcefully in order to
-# bypass a build issue.
-/vendor
 
 *.json
 *.sublime-project
