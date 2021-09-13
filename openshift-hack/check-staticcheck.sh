@@ -33,6 +33,13 @@ STATICCHECK_VERSION="2021.1.1"
 function runStaticcheck() {
     local STATICCHECK_PATH=$LOCAL_BINARIES_PATH/staticcheck
     go-get-tool "$STATICCHECK_PATH" honnef.co/go/tools/cmd/staticcheck@$STATICCHECK_VERSION
+
+    # Ensure that some home var is set and that it's not the root
+    export HOME=${HOME:=/tmp/temphome}
+    if [ $HOME == "/" ]; then
+      export HOME=/tmp/temphome
+    fi
+
     $STATICCHECK_PATH -checks "${CHECKS}" ./...
     echo "Done staticcheck"
 }
