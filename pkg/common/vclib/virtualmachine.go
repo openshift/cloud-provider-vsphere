@@ -195,6 +195,9 @@ func (vm *VirtualMachine) IsActive(ctx context.Context) (bool, error) {
 		klog.Errorf("Failed to get VM Managed object with property summary. err: +%v", err)
 		return false, err
 	}
+	vmToCheck := vmMoList[0]
+	klog.V(1).Infof(
+		"checking vm %s (%s). Observing PowerState is %s", vmToCheck.Config.Name, vmToCheck.Config.Uuid, vmToCheck.Summary.Runtime.PowerState)
 	if vmMoList[0].Summary.Runtime.PowerState == ActivePowerState {
 		return true, nil
 	}
