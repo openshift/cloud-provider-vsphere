@@ -22,11 +22,7 @@ lint:
 	openshift-hack/check-lint.sh
 .PHONY: lint
 
-staticcheck:
-	openshift-hack/check-staticcheck.sh
-.PHONY: staticcheck
-
-verify: fmt vet lint staticcheck
+verify: fmt vet lint
 .PHONY: verify
 
 test-unit-ci unit:
