@@ -34,9 +34,7 @@ OPENSHIFT_CI=${OPENSHIFT_CI:-""}
 ARTIFACT_DIR=${ARTIFACT_DIR:-""}
 
 function go_test() {
-    local PKGS_WITH_TESTS
-    PKGS_WITH_TESTS=$(find . -name "*_test.go" -type f -exec dirname \{\} \;)
-    go test -v -tags=unit $PKGS_WITH_TESTS
+     go test ./pkg/...
 }
 
 runTestCI() {
