@@ -18,6 +18,7 @@ package simulator
 
 import (
 	"github.com/google/uuid"
+
 	"github.com/vmware/govmomi/lookup"
 	"github.com/vmware/govmomi/lookup/types"
 	"github.com/vmware/govmomi/simulator"
@@ -53,7 +54,7 @@ func registrationInfo() []types.LookupServiceRegistrationInfo {
 	instance := opts["VirtualCenter.InstanceName"]
 
 	// Real PSC has 30+ services by default, we just provide a few that are useful for vmomi interaction..
-	return []types.LookupServiceRegistrationInfo{
+	info := []types.LookupServiceRegistrationInfo{
 		{
 			LookupServiceRegistrationCommonServiceInfo: types.LookupServiceRegistrationCommonServiceInfo{
 				LookupServiceRegistrationMutableServiceInfo: types.LookupServiceRegistrationMutableServiceInfo{
@@ -130,4 +131,9 @@ func registrationInfo() []types.LookupServiceRegistrationInfo {
 			SiteId:    siteID,
 		},
 	}
+
+	sts := info[0]
+	sts.ServiceType.Type = "sso:sts" // obsolete service type, but still used by PowerCLI
+
+	return append(info, sts)
 }

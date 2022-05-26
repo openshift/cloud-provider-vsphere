@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2014-2018 VMware, Inc. All Rights Reserved.
+Copyright (c) 2014-2021 VMware, Inc. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -893,6 +893,26 @@ func (b *VslmUpdateVStorageObjectMetadata_TaskBody) Fault() *soap.Fault { return
 
 func VslmUpdateVStorageObjectMetadata_Task(ctx context.Context, r soap.RoundTripper, req *types.VslmUpdateVStorageObjectMetadata_Task) (*types.VslmUpdateVStorageObjectMetadata_TaskResponse, error) {
 	var reqBody, resBody VslmUpdateVStorageObjectMetadata_TaskBody
+
+	reqBody.Req = req
+
+	if err := r.RoundTrip(ctx, &reqBody, &resBody); err != nil {
+		return nil, err
+	}
+
+	return resBody.Res, nil
+}
+
+type VslmUpdateVstorageObjectCrypto_TaskBody struct {
+	Req    *types.VslmUpdateVstorageObjectCrypto_Task         `xml:"urn:vslm VslmUpdateVstorageObjectCrypto_Task,omitempty"`
+	Res    *types.VslmUpdateVstorageObjectCrypto_TaskResponse `xml:"urn:vslm VslmUpdateVstorageObjectCrypto_TaskResponse,omitempty"`
+	Fault_ *soap.Fault                                        `xml:"http://schemas.xmlsoap.org/soap/envelope/ Fault,omitempty"`
+}
+
+func (b *VslmUpdateVstorageObjectCrypto_TaskBody) Fault() *soap.Fault { return b.Fault_ }
+
+func VslmUpdateVstorageObjectCrypto_Task(ctx context.Context, r soap.RoundTripper, req *types.VslmUpdateVstorageObjectCrypto_Task) (*types.VslmUpdateVstorageObjectCrypto_TaskResponse, error) {
+	var reqBody, resBody VslmUpdateVstorageObjectCrypto_TaskBody
 
 	reqBody.Req = req
 
