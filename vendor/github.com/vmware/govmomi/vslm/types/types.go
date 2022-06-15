@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2014-2018 VMware, Inc. All Rights Reserved.
+Copyright (c) 2014-2021 VMware, Inc. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -954,6 +954,7 @@ type VslmSyncDatastoreRequestType struct {
 	This         types.ManagedObjectReference `xml:"_this"`
 	DatastoreUrl string                       `xml:"datastoreUrl"`
 	FullSync     bool                         `xml:"fullSync"`
+	FcdId        *types.ID                    `xml:"fcdId,omitempty"`
 }
 
 func init() {
@@ -965,6 +966,8 @@ type VslmSyncDatastoreResponse struct {
 
 type VslmSyncFault struct {
 	VslmFault
+
+	Id *types.ID `xml:"id,omitempty"`
 }
 
 func init() {
@@ -1099,6 +1102,27 @@ type VslmUpdateVStorageObjectMetadata_TaskResponse struct {
 	Returnval types.ManagedObjectReference `xml:"returnval"`
 }
 
+type VslmUpdateVstorageObjectCryptoRequestType struct {
+	This        types.ManagedObjectReference      `xml:"_this"`
+	Id          types.ID                          `xml:"id"`
+	Profile     []types.VirtualMachineProfileSpec `xml:"profile,omitempty"`
+	DisksCrypto *types.DiskCryptoSpec             `xml:"disksCrypto,omitempty"`
+}
+
+func init() {
+	types.Add("vslm:VslmUpdateVstorageObjectCryptoRequestType", reflect.TypeOf((*VslmUpdateVstorageObjectCryptoRequestType)(nil)).Elem())
+}
+
+type VslmUpdateVstorageObjectCrypto_Task VslmUpdateVstorageObjectCryptoRequestType
+
+func init() {
+	types.Add("vslm:VslmUpdateVstorageObjectCrypto_Task", reflect.TypeOf((*VslmUpdateVstorageObjectCrypto_Task)(nil)).Elem())
+}
+
+type VslmUpdateVstorageObjectCrypto_TaskResponse struct {
+	Returnval types.ManagedObjectReference `xml:"returnval"`
+}
+
 type VslmUpdateVstorageObjectPolicyRequestType struct {
 	This    types.ManagedObjectReference      `xml:"_this"`
 	Id      types.ID                          `xml:"id"`
@@ -1169,15 +1193,17 @@ func init() {
 type VslmVsoVStorageObjectResult struct {
 	types.DynamicData
 
-	Id              types.ID                              `xml:"id"`
-	Name            string                                `xml:"name,omitempty"`
-	CapacityInMB    int64                                 `xml:"capacityInMB"`
-	CreateTime      *time.Time                            `xml:"createTime"`
-	DatastoreUrl    string                                `xml:"datastoreUrl,omitempty"`
-	BackingObjectId *types.ID                             `xml:"backingObjectId,omitempty"`
-	SnapshotInfo    []VslmVsoVStorageObjectSnapshotResult `xml:"snapshotInfo,omitempty"`
-	Metadata        []types.KeyValue                      `xml:"metadata,omitempty"`
-	Error           *types.LocalizedMethodFault           `xml:"error,omitempty"`
+	Id               types.ID                              `xml:"id"`
+	Name             string                                `xml:"name,omitempty"`
+	CapacityInMB     int64                                 `xml:"capacityInMB"`
+	CreateTime       *time.Time                            `xml:"createTime"`
+	DatastoreUrl     string                                `xml:"datastoreUrl,omitempty"`
+	DiskPath         string                                `xml:"diskPath,omitempty"`
+	UsedCapacityInMB int64                                 `xml:"usedCapacityInMB,omitempty"`
+	BackingObjectId  *types.ID                             `xml:"backingObjectId,omitempty"`
+	SnapshotInfo     []VslmVsoVStorageObjectSnapshotResult `xml:"snapshotInfo,omitempty"`
+	Metadata         []types.KeyValue                      `xml:"metadata,omitempty"`
+	Error            *types.LocalizedMethodFault           `xml:"error,omitempty"`
 }
 
 func init() {
@@ -1187,7 +1213,10 @@ func init() {
 type VslmVsoVStorageObjectSnapshotResult struct {
 	types.DynamicData
 
-	BackingObjectId types.ID `xml:"backingObjectId"`
+	BackingObjectId types.ID  `xml:"backingObjectId"`
+	Description     string    `xml:"description,omitempty"`
+	SnapshotId      *types.ID `xml:"snapshotId,omitempty"`
+	DiskPath        string    `xml:"diskPath,omitempty"`
 }
 
 func init() {

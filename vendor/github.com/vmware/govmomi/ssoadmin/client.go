@@ -47,6 +47,7 @@ var (
 type Client struct {
 	*soap.Client
 
+	RoundTripper   soap.RoundTripper
 	ServiceContent types.AdminServiceContent
 	GroupCheck     types.GroupcheckServiceContent
 	Domain         string
@@ -78,9 +79,10 @@ func NewClient(ctx context.Context, c *vim25.Client) (*Client, error) {
 	sc.Version = Version
 
 	admin := &Client{
-		Client: sc,
-		Domain: "vsphere.local", // Default
-		Limit:  100,
+		Client:       sc,
+		RoundTripper: sc,
+		Domain:       "vsphere.local", // Default
+		Limit:        100,
 	}
 	if url != Path {
 		admin.Domain = path.Base(url)
@@ -115,6 +117,11 @@ func NewClient(ctx context.Context, c *vim25.Client) (*Client, error) {
 	}
 
 	return admin, nil
+}
+
+// RoundTrip dispatches to the RoundTripper field.
+func (c *Client) RoundTrip(ctx context.Context, req, res soap.HasFault) error {
+	return c.RoundTripper.RoundTrip(ctx, req, res)
 }
 
 func (c *Client) parseID(name string) types.PrincipalId {
@@ -179,6 +186,17 @@ func (c *Client) RemoveUsersFromGroup(ctx context.Context, groupName string, use
 	}
 
 	_, err := methods.RemovePrincipalsFromLocalGroup(ctx, c, &req)
+	return err
+}
+
+func (c *Client) AddGroupsToGroup(ctx context.Context, groupName string, groupIDs ...types.PrincipalId) error {
+	req := types.AddGroupsToLocalGroup{
+		This:      c.ServiceContent.PrincipalManagementService,
+		GroupName: groupName,
+		GroupIds:  groupIDs,
+	}
+
+	_, err := methods.AddGroupsToLocalGroup(ctx, c, &req)
 	return err
 }
 
