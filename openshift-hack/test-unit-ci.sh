@@ -10,18 +10,15 @@ set -o pipefail
 source ./openshift-hack/go-get-tool.sh
 
 REPO_ROOT=$(realpath "$(dirname "${BASH_SOURCE[0]}")/..")
-ENVTEST_VERSION=v0.6.5 # based on version declared in go.mod
-ENVTEST_ASSETS_DIR=/tmp/testbin
-ENVTEST_SETUP_SCRIPT=https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/${ENVTEST_VERSION}/hack/setup-envtest.sh
+ENVTEST_KUBE_VERSION=1.24.1
+ENVTEST_ASSETS_DIR=/tmp/kubebuilder
 
-# Use envtest install scripts instead of manual pulling and moving kubebuilder to PATH
+# Use envtest tool scripts instead of manual pulling and moving kubebuilder to PATH
 function setupEnvtest() {
-    echo "Envtest version: ${ENVTEST_VERSION}."
-    mkdir -p ${ENVTEST_ASSETS_DIR}
-    test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh ${ENVTEST_SETUP_SCRIPT}
-    source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh
-    fetch_envtest_tools ${ENVTEST_ASSETS_DIR}
-    setup_envtest_env ${ENVTEST_ASSETS_DIR}
+    go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+    setup-envtest use $ENVTEST_KUBE_VERSION! --bin-dir=$ENVTEST_ASSETS_DIR -p overview # Download envtest and print overview
+    # set proper KUBEBUILDER_ASSETS env var
+    export KUBEBUILDER_ASSETS=$(setup-envtest use -i $ENVTEST_KUBE_VERSION! --bin-dir=$ENVTEST_ASSETS_DIR -p path)
 
     # Ensure that some home var is set and that it's not the root
     export HOME=${HOME:=/tmp/kubebuilder/testing}
@@ -34,7 +31,7 @@ OPENSHIFT_CI=${OPENSHIFT_CI:-""}
 ARTIFACT_DIR=${ARTIFACT_DIR:-""}
 
 function go_test() {
-     go test ./pkg/...
+     go test ./pkg/... -v
 }
 
 runTestCI() {
@@ -44,7 +41,7 @@ runTestCI() {
         local JUNIT_LOCATION="$ARTIFACT_DIR"/junit_cluster_cloud_controller_manager_operator.xml
         echo "jUnit location: $JUNIT_LOCATION"
         go-get-tool "$GO_JUNIT_REPORT_PATH" github.com/jstemmer/go-junit-report
-        go_test -v | tee >($GO_JUNIT_REPORT_PATH > "$JUNIT_LOCATION")
+        go_test | tee >($GO_JUNIT_REPORT_PATH > "$JUNIT_LOCATION")
     else
         echo "\$ARTIFACT_DIR not set or does not exists, no jUnit will be published"
         go_test
