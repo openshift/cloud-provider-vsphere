@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -188,7 +189,8 @@ func verifyWrappedX509UnkownAuthorityErr(t *testing.T, err error) {
 	if !ok {
 		t.Fatalf("Expected to receive an url.Error, got '%s' (%#v)", err.Error(), err)
 	}
-	x509Err, ok := urlErr.Err.(x509.UnknownAuthorityError)
+	x509Err := &x509.UnknownAuthorityError{}
+	ok = errors.As(urlErr.Err, x509Err)
 	if !ok {
 		t.Fatalf("Expected to receive a wrapped x509.UnknownAuthorityError, got: '%s' (%#v)", urlErr.Error(), urlErr)
 	}
