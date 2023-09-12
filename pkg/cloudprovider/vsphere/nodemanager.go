@@ -236,6 +236,20 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 		klog.Warningf("Unable to find vcInstance for %s. Defaulting to ipv4.", tenantRef)
 	}
 
+	// Because vcInstance is a property of vCenter and not a VM instance, it does not properly
+	// return dual-stackness of the environment. In our testing we always get "ipv4" even when
+	// deploying a full dual-stack setup.
+	//
+	// This value is used only to filter out IP addresses of the VM instance that will be later
+	// stored in the "instanceMeta.NodeAddresses" and cross-checked against IP addresses provided
+	// as kubelet's annotation "alpha.kubernetes.io/provided-node-ip". Because of that, we can
+	// forcefully set it to "ipv4, ipv6" to ensure its correct behaviour for dual-stack setups.
+	//
+	// This is safe for IPv4-only and IPv6-only configurations because the function "discoverIPs"
+	// simply returns "nil" if it cannot discover IP of a requested stack and we handle those when
+	// calling "AddToNodeAddresses".
+	ipFamilies = []string{vcfg.IPv4Family, vcfg.IPv6Family}
+
 	var internalNetworkSubnets []*net.IPNet
 	var externalNetworkSubnets []*net.IPNet
 	var excludeInternalNetworkSubnets []*net.IPNet
@@ -310,6 +324,7 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 		return err
 	}
 
+	failedAddressDiscovery := true
 	for _, ipFamily := range ipFamilies {
 		klog.V(6).Infof("ipFamily: %q nonLocalhostIPs: %q", ipFamily, sortedNonLocalhostIPs)
 		discoveredInternal, discoveredExternal := discoverIPs(
@@ -330,20 +345,20 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 			v1helper.AddToNodeAddresses(&addrs,
 				v1.NodeAddress{Type: v1.NodeInternalIP, Address: discoveredInternal.ipAddr},
 			)
+			failedAddressDiscovery = false
 		}
 
 		if discoveredExternal != nil {
 			v1helper.AddToNodeAddresses(&addrs,
 				v1.NodeAddress{Type: v1.NodeExternalIP, Address: discoveredExternal.ipAddr},
 			)
+			failedAddressDiscovery = false
 		}
+	}
 
-		if len(oVM.Guest.Net) > 0 {
-			if discoveredInternal == nil && discoveredExternal == nil {
-				klog.V(4).Infof("oVM.Guest.Net=%v", oVM.Guest.Net)
-				return fmt.Errorf("unable to find suitable IP address for node %s with IP family %s", nodeID, ipFamilies)
-			}
-		}
+	if len(oVM.Guest.Net) > 0 && failedAddressDiscovery {
+		klog.V(4).Infof("oVM.Guest.Net=%v", oVM.Guest.Net)
+		return fmt.Errorf("unable to find suitable IP address for node %s with IP family %s", nodeID, ipFamilies)
 	}
 
 	klog.V(2).Infof("Found node %s as vm=%+v in vc=%s and datacenter=%s",
