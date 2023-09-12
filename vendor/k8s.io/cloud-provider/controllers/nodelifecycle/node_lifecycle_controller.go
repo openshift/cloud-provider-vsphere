@@ -21,7 +21,7 @@ import (
 	"errors"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -206,6 +206,8 @@ func shutdownInCloudProvider(ctx context.Context, cloud cloudprovider.Interface,
 	if !ok {
 		return false, errors.New("cloud provider does not support instances")
 	}
+
+	klog.V(2).Infof("CHOCOBOMB: shutdownInCloudProvider: used node.Spec.ProviderID '%q' for node.Name '%q'", node.Spec.ProviderID, node.Name)
 
 	shutdown, err := instances.InstanceShutdownByProviderID(ctx, node.Spec.ProviderID)
 	if err == cloudprovider.NotImplemented {

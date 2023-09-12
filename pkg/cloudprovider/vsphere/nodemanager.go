@@ -192,7 +192,7 @@ func (c *ipAddrNetworkName) ip() net.IP {
 func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 	ctx := context.Background()
 
-	klog.V(2).Info("CHOCOBOMB: DiscoverNode: used nodeID '%q'", nodeID)
+	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: used nodeID '%q'", nodeID)
 
 	vmDI, err := nm.shakeOutNodeIDLookup(ctx, nodeID, searchBy)
 	if err != nil {
