@@ -197,6 +197,7 @@ func (c *CloudNodeLifecycleController) MonitorNodes(ctx context.Context) {
 }
 
 // shutdownInCloudProvider returns true if the node is shutdown on the cloud provider
+// If provider id in spec is empty it calls instanceId with node name to get provider id
 func shutdownInCloudProvider(ctx context.Context, cloud cloudprovider.Interface, node *v1.Node) (bool, error) {
 	if instanceV2, ok := cloud.InstancesV2(); ok {
 		return instanceV2.InstanceShutdown(ctx, node)
@@ -209,12 +210,26 @@ func shutdownInCloudProvider(ctx context.Context, cloud cloudprovider.Interface,
 
 	klog.V(2).Infof("CHOCOBOMB: shutdownInCloudProvider: used node.Spec.ProviderID '%q' for node.Name '%q'", node.Spec.ProviderID, node.Name)
 
-	shutdown, err := instances.InstanceShutdownByProviderID(ctx, node.Spec.ProviderID)
-	if err == cloudprovider.NotImplemented {
-		return false, nil
+	providerID := node.Spec.ProviderID
+	if providerID == "" {
+		klog.V(2).Infof("CHOCOBOMB: shutdownInCloudProvider: empty ProviderID; fallback to instance ID by name '%q'", node.Name)
+		var err error
+		providerID, err = instances.InstanceID(ctx, types.NodeName(node.Name))
+		klog.V(2).Infof("CHOCOBOMB: shutdownInCloudProvider: instance ID by name '%q' returned '%q'", node.Name, providerID)
+		if err != nil {
+			if err == cloudprovider.InstanceNotFound {
+				return false, nil
+			}
+			return false, err
+		}
+
+		if providerID == "" {
+			klog.Warningf("Cannot find valid providerID for node name %q, assuming non existence", node.Name)
+			return false, nil
+		}
 	}
 
-	return shutdown, err
+	return instances.InstanceShutdownByProviderID(ctx, providerID)
 }
 
 // ensureNodeExistsByProviderID checks if the instance exists by the provider id,
