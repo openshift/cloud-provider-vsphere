@@ -209,6 +209,8 @@ func shutdownInCloudProvider(ctx context.Context, cloud cloudprovider.Interface,
 	}
 
 	klog.V(2).Infof("CHOCOBOMB: shutdownInCloudProvider: used node.Spec.ProviderID '%q' for node.Name '%q'", node.Spec.ProviderID, node.Name)
+	klog.V(2).Infof("CHOCOBOMB: shutdownInCloudProvider: dumping node object '%+v'", node)
+	klog.V(2).Infof("CHOCOBOMB: shutdownInCloudProvider: dumping node's spec object '%+v'", node.Spec)
 
 	providerID := node.Spec.ProviderID
 	if providerID == "" {
