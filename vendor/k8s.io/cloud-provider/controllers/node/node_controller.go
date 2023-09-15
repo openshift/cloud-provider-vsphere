@@ -527,6 +527,7 @@ func (cnc *CloudNodeController) getNodeModifiersFromCloudProvider(
 	// If kubelet annotated the node with a node IP, ensure that it is valid
 	// and can be applied to the discovered node addresses before removing
 	// the taint on the node.
+	klog.V(2).Infof("CHOCOBOMB: getNodeModifiersFromCloudProvider: have node '%+v' and instanceMeta '%+v'", node, instanceMeta)
 	_, err := updateNodeAddressesFromNodeIP(node, instanceMeta.NodeAddresses)
 	if err != nil {
 		return nil, fmt.Errorf("provided node ip for node %q is not valid: %w", node.Name, err)
