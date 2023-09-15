@@ -741,6 +741,7 @@ func updateNodeAddressesFromNodeIP(node *v1.Node, nodeAddresses []v1.NodeAddress
 
 	providedNodeIP, exists := node.ObjectMeta.Annotations[cloudproviderapi.AnnotationAlphaProvidedIPAddr]
 	if exists {
+		klog.V(2).Infof("CHOCOBOMB: updateNodeAddressesFromNodeIP: calling GetNodeAddressesFromNodeIP with providedNodeIP '%s' and nodeAddresses '%+v'", providedNodeIP, nodeAddresses)
 		nodeAddresses, err = cloudnodeutil.GetNodeAddressesFromNodeIP(providedNodeIP, nodeAddresses, utilfeature.DefaultFeatureGate.Enabled(features.CloudDualStackNodeIPs))
 	}
 

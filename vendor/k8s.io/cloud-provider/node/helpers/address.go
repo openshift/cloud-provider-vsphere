@@ -20,8 +20,9 @@ import (
 	"fmt"
 	"net"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	nodeutil "k8s.io/component-helpers/node/util"
+	"k8s.io/klog/v2"
 	netutils "k8s.io/utils/net"
 )
 
@@ -112,6 +113,8 @@ func GetNodeAddressesFromNodeIP(providedNodeIP string, cloudNodeAddresses []v1.N
 	nodeIPTypes := make(map[v1.NodeAddressType]bool)
 
 	for _, nodeIP := range nodeIPs {
+		klog.V(2).Infof("CHOCOBOMB: GetNodeAddressesFromNodeIP: starting to match '%v'", nodeIP)
+
 		// For every address supplied by the cloud provider that matches nodeIP,
 		// nodeIP is the enforced node address for that address Type (like
 		// InternalIP and ExternalIP), meaning other addresses of the same Type
@@ -121,10 +124,12 @@ func GetNodeAddressesFromNodeIP(providedNodeIP string, cloudNodeAddresses []v1.N
 
 		matched := false
 		for _, nodeAddress := range cloudNodeAddresses {
+			klog.V(2).Infof("CHOCOBOMB: GetNodeAddressesFromNodeIP: trying to match nodeIP '%v' with nodeAddress '%v'", nodeIP, nodeAddress)
 			if netutils.ParseIPSloppy(nodeAddress.Address).Equal(nodeIP) {
 				enforcedNodeAddresses = append(enforcedNodeAddresses, v1.NodeAddress{Type: nodeAddress.Type, Address: nodeAddress.Address})
 				nodeIPTypes[nodeAddress.Type] = true
 				matched = true
+				klog.V(2).Infof("CHOCOBOMB: GetNodeAddressesFromNodeIP: successfuly matched nodeIP '%v' with nodeAddress '%v'", nodeIP, nodeAddress)
 			}
 		}
 
