@@ -236,9 +236,16 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 	if vcInstance != nil {
 		ipFamilies = vcInstance.Cfg.IPFamilyPriority
 		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: got vcInstance, using ipFamilies '%+v'", ipFamilies)
+		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: got vcInstance cfg '%+v'", vcInstance.Cfg)
+		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: got vcInstance '%+v'", vcInstance)
 	} else {
 		klog.Warningf("Unable to find vcInstance for %s. Defaulting to ipv4.", tenantRef)
 	}
+
+	// This is a hack. We only do it because in our setup a dual-stack VM returned "IPv4" as
+	// vcInstance.Cfg.IPFamilyPriority what I do not understand but it is what it is.
+	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: forcing family to IPv4+IPv6")
+	ipFamilies = []string{vcfg.IPv4Family, vcfg.IPv6Family}
 
 	var internalNetworkSubnets []*net.IPNet
 	var externalNetworkSubnets []*net.IPNet
