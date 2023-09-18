@@ -232,8 +232,10 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 	vcInstance := nm.connectionManager.VsphereInstanceMap[tenantRef]
 
 	ipFamilies := []string{vcfg.DefaultIPFamily}
+	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: defaulting to ipFamilies '%+v'", ipFamilies)
 	if vcInstance != nil {
 		ipFamilies = vcInstance.Cfg.IPFamilyPriority
+		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: got vcInstance, using ipFamilies '%+v'", ipFamilies)
 	} else {
 		klog.Warningf("Unable to find vcInstance for %s. Defaulting to ipv4.", tenantRef)
 	}
@@ -313,6 +315,7 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 	}
 
 	for _, ipFamily := range ipFamilies {
+		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: running discoverIPs using family '%q'", ipFamily)
 		klog.V(6).Infof("ipFamily: %q nonLocalhostIPs: %q", ipFamily, sortedNonLocalhostIPs)
 		discoveredInternal, discoveredExternal := discoverIPs(
 			sortedNonLocalhostIPs,
@@ -347,6 +350,19 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 			}
 		}
 	}
+
+	klog.V(2).Info("CHOCOBOMB: DiscoverNode: manual debug for ipv6 discovery runs here")
+	discoveredInternalTemp, discoveredExternalTemp := discoverIPs(
+		sortedNonLocalhostIPs,
+		"ipv6",
+		internalNetworkSubnets,
+		externalNetworkSubnets,
+		excludeInternalNetworkSubnets,
+		excludeExternalNetworkSubnets,
+		internalVMNetworkName,
+		externalVMNetworkName,
+	)
+	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: manual debug got internal '%q' and external '%q'", discoveredInternalTemp.ipAddr, discoveredExternalTemp.ipAddr)
 
 	klog.V(2).Infof("Found node %s as vm=%+v in vc=%s and datacenter=%s",
 		nodeID, vmDI.VM, vmDI.VcServer, vmDI.DataCenter.Name())

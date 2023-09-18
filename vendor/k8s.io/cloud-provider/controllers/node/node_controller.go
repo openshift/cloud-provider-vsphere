@@ -708,6 +708,7 @@ func ensureNodeExistsByProviderID(ctx context.Context, instances cloudprovider.I
 }
 
 func getNodeAddressesByProviderIDOrName(ctx context.Context, instances cloudprovider.Instances, providerID, nodeName string) ([]v1.NodeAddress, error) {
+	klog.V(2).Infof("CHOCOBOMB: getNodeAddressesByProviderIDOrName: getting addresses for node '%q' using providerID '%q'", nodeName, providerID)
 	nodeAddresses, err := instances.NodeAddressesByProviderID(ctx, providerID)
 	if err != nil {
 		providerIDErr := err
