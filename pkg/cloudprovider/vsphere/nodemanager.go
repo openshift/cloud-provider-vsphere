@@ -364,6 +364,11 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 	)
 	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: manual debug got internal '%q' and external '%q'", discoveredInternalTemp.ipAddr, discoveredExternalTemp.ipAddr)
 
+	klog.V(2).Info("CHOCOBOMB: DiscoverNode: manual discovery for everything what can be discovered")
+	everythingv4 := collectMatchesForIPFamily(sortedNonLocalhostIPs, "ipv4")
+	everythingv6 := collectMatchesForIPFamily(sortedNonLocalhostIPs, "ipv6")
+	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: manual discovery got v4 '%+v' and v6 '%+v'", everythingv4, everythingv6)
+
 	klog.V(2).Infof("Found node %s as vm=%+v in vc=%s and datacenter=%s",
 		nodeID, vmDI.VM, vmDI.VcServer, vmDI.DataCenter.Name())
 	klog.V(2).Info("Hostname: ", oVM.Guest.HostName, " UUID: ", vmDI.UUID)
