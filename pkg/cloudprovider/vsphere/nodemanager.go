@@ -192,8 +192,6 @@ func (c *ipAddrNetworkName) ip() net.IP {
 func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 	ctx := context.Background()
 
-	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: used nodeID '%q'", nodeID)
-
 	vmDI, err := nm.shakeOutNodeIDLookup(ctx, nodeID, searchBy)
 	if err != nil {
 		klog.Errorf("shakeOutNodeIDLookup failed. Err=%v", err)
@@ -232,19 +230,14 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 	vcInstance := nm.connectionManager.VsphereInstanceMap[tenantRef]
 
 	ipFamilies := []string{vcfg.DefaultIPFamily}
-	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: defaulting to ipFamilies '%+v'", ipFamilies)
 	if vcInstance != nil {
 		ipFamilies = vcInstance.Cfg.IPFamilyPriority
-		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: got vcInstance, using ipFamilies '%+v'", ipFamilies)
-		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: got vcInstance cfg '%+v'", vcInstance.Cfg)
-		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: got vcInstance '%+v'", vcInstance)
 	} else {
 		klog.Warningf("Unable to find vcInstance for %s. Defaulting to ipv4.", tenantRef)
 	}
 
 	// This is a hack. We only do it because in our setup a dual-stack VM returned "IPv4" as
 	// vcInstance.Cfg.IPFamilyPriority what I do not understand but it is what it is.
-	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: forcing family to IPv4+IPv6")
 	ipFamilies = []string{vcfg.IPv4Family, vcfg.IPv6Family}
 
 	var internalNetworkSubnets []*net.IPNet
@@ -322,7 +315,6 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 	}
 
 	for _, ipFamily := range ipFamilies {
-		klog.V(2).Infof("CHOCOBOMB: DiscoverNode: running discoverIPs using family '%q'", ipFamily)
 		klog.V(6).Infof("ipFamily: %q nonLocalhostIPs: %q", ipFamily, sortedNonLocalhostIPs)
 		discoveredInternal, discoveredExternal := discoverIPs(
 			sortedNonLocalhostIPs,
@@ -357,24 +349,6 @@ func (nm *NodeManager) DiscoverNode(nodeID string, searchBy cm.FindVM) error {
 			}
 		}
 	}
-
-	klog.V(2).Info("CHOCOBOMB: DiscoverNode: manual debug for ipv6 discovery runs here")
-	discoveredInternalTemp, discoveredExternalTemp := discoverIPs(
-		sortedNonLocalhostIPs,
-		"ipv6",
-		internalNetworkSubnets,
-		externalNetworkSubnets,
-		excludeInternalNetworkSubnets,
-		excludeExternalNetworkSubnets,
-		internalVMNetworkName,
-		externalVMNetworkName,
-	)
-	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: manual debug got internal '%q' and external '%q'", discoveredInternalTemp.ipAddr, discoveredExternalTemp.ipAddr)
-
-	klog.V(2).Info("CHOCOBOMB: DiscoverNode: manual discovery for everything what can be discovered")
-	everythingv4 := collectMatchesForIPFamily(sortedNonLocalhostIPs, "ipv4")
-	everythingv6 := collectMatchesForIPFamily(sortedNonLocalhostIPs, "ipv6")
-	klog.V(2).Infof("CHOCOBOMB: DiscoverNode: manual discovery got v4 '%+v' and v6 '%+v'", everythingv4, everythingv6)
 
 	klog.V(2).Infof("Found node %s as vm=%+v in vc=%s and datacenter=%s",
 		nodeID, vmDI.VM, vmDI.VcServer, vmDI.DataCenter.Name())

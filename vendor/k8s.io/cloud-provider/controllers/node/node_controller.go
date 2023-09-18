@@ -527,7 +527,6 @@ func (cnc *CloudNodeController) getNodeModifiersFromCloudProvider(
 	// If kubelet annotated the node with a node IP, ensure that it is valid
 	// and can be applied to the discovered node addresses before removing
 	// the taint on the node.
-	klog.V(2).Infof("CHOCOBOMB: getNodeModifiersFromCloudProvider: have node '%+v' and instanceMeta '%+v'", node, instanceMeta)
 	_, err := updateNodeAddressesFromNodeIP(node, instanceMeta.NodeAddresses)
 	if err != nil {
 		return nil, fmt.Errorf("provided node ip for node %q is not valid: %w", node.Name, err)
@@ -708,7 +707,6 @@ func ensureNodeExistsByProviderID(ctx context.Context, instances cloudprovider.I
 }
 
 func getNodeAddressesByProviderIDOrName(ctx context.Context, instances cloudprovider.Instances, providerID, nodeName string) ([]v1.NodeAddress, error) {
-	klog.V(2).Infof("CHOCOBOMB: getNodeAddressesByProviderIDOrName: getting addresses for node '%q' using providerID '%q'", nodeName, providerID)
 	nodeAddresses, err := instances.NodeAddressesByProviderID(ctx, providerID)
 	if err != nil {
 		providerIDErr := err
@@ -743,7 +741,6 @@ func updateNodeAddressesFromNodeIP(node *v1.Node, nodeAddresses []v1.NodeAddress
 
 	providedNodeIP, exists := node.ObjectMeta.Annotations[cloudproviderapi.AnnotationAlphaProvidedIPAddr]
 	if exists {
-		klog.V(2).Infof("CHOCOBOMB: updateNodeAddressesFromNodeIP: calling GetNodeAddressesFromNodeIP with providedNodeIP '%s' and nodeAddresses '%+v'", providedNodeIP, nodeAddresses)
 		nodeAddresses, err = cloudnodeutil.GetNodeAddressesFromNodeIP(providedNodeIP, nodeAddresses, utilfeature.DefaultFeatureGate.Enabled(features.CloudDualStackNodeIPs))
 	}
 

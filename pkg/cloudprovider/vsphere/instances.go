@@ -199,7 +199,6 @@ func (i *instances) InstanceShutdownByProviderID(ctx context.Context, providerID
 
 	// Check if node has been discovered already
 	uid := GetUUIDFromProviderID(providerID)
-	klog.V(2).Infof("CHOCOBOMB: InstanceShutdownByProviderID: used providerID '%q' and got uid '%q'", providerID, uid)
 	if _, ok := i.nodeManager.nodeUUIDMap[uid]; !ok {
 		// if the uuid is not cached, we end up here
 		klog.V(2).Info("instances.InstanceShutdownByProviderID() NOT CACHED")
