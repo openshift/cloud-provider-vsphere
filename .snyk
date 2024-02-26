@@ -4,3 +4,9 @@
 exclude:
   global:
     - "vendor/**"
+    - "**/vendor/**"
+    - "releases/**"
+    - "docs/**"
+    - "manifests/controller-manager/example-test.yaml"
+    - "manifests/controller-manager/vsphere-cloud-controller-manager-ds.yaml"
+    - "manifests/controller-manager/vsphere-cloud-controller-manager-pod.yaml"
