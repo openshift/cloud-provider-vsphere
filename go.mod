@@ -1,8 +1,6 @@
 module k8s.io/cloud-provider-vsphere
 
-go 1.24.0
-
-replace github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels => github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels v1.8.6
+go 1.22
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
