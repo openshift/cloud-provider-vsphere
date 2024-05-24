@@ -1,8 +1,6 @@
 module k8s.io/cloud-provider-vsphere
 
-go 1.26.0
-
-replace github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels => github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels v0.0.0-20260502065817-4ee333ccd54c
+go 1.22
 
 // vm-operator version: prefer alignment with CAPV https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/blob/main/go.mod#L11
 // (may temporarily diverge when CPI needs a newer api/v1alpha6 commit before CAPV bumps).
