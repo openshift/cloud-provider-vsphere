@@ -53,11 +53,10 @@ type VSphere struct {
 	*/
 
 	// internal plumbing
-	connectionManager   *cm.ConnectionManager
-	nodeManager         *NodeManager
-	informMgr           *k8s.InformerManager
-	nsxtConnectorMgr    *nsxt.ConnectorManager
-	nsxtSecretNamespace string
+	connectionManager *cm.ConnectionManager
+	nodeManager       *NodeManager
+	informMgr         *k8s.InformerManager
+	nsxtConnectorMgr  *nsxt.ConnectorManager
 }
 
 // NodeInfo is information about a Kubernetes node.
