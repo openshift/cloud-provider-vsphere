@@ -412,7 +412,11 @@ type ClusterStatus struct {
 	// +optional
 	InfrastructureReady bool `json:"infrastructureReady"`
 
-	// ControlPlaneReady defines if the control plane is ready.
+	// ControlPlaneReady denotes if the control plane became ready during initial provisioning
+	// to receive requests.
+	// NOTE: this field is part of the Cluster API contract and it is used to orchestrate provisioning.
+	// The value of this field is never updated after provisioning is completed. Please use conditions
+	// to check the operational state of the control plane.
 	// +optional
 	ControlPlaneReady bool `json:"controlPlaneReady"`
 
@@ -505,8 +509,9 @@ func (c *Cluster) SetConditions(conditions Conditions) {
 }
 
 // GetIPFamily returns a ClusterIPFamily from the configuration provided.
-// Note: IPFamily is not a concept in Kubernetes. It was originally introduced in CAPI for CAPD.
-// IPFamily may be dropped in a future release. More details at https://github.com/kubernetes-sigs/cluster-api/issues/7521
+//
+// Deprecated: IPFamily is not a concept in Kubernetes. It was originally introduced in CAPI for CAPD.
+// IPFamily will be dropped in a future release. More details at https://github.com/kubernetes-sigs/cluster-api/issues/7521
 func (c *Cluster) GetIPFamily() (ClusterIPFamily, error) {
 	var podCIDRs, serviceCIDRs []string
 	if c.Spec.ClusterNetwork != nil {
