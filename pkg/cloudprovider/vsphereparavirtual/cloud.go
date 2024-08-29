@@ -121,7 +121,7 @@ func (cp *VSphereParavirtual) Initialize(clientBuilder cloudprovider.ControllerC
 	}
 
 	cp.client = client
-	cp.informMgr = k8s.NewInformer(client)
+	cp.informMgr = k8s.NewInformer(client, true)
 	cp.ownerReference = ownerRef
 
 	kcfg, err := getRestConfig(SupervisorClusterConfigPath)
