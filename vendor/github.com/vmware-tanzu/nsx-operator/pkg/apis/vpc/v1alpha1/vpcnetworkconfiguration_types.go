@@ -8,12 +8,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	AccessModePublic  string = "Public"
-	AccessModePrivate string = "Private"
-	AccessModeProject string = "PrivateTGW"
-)
-
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
 // There is a default VPCNetworkConfiguration that applies to Namespaces
 // do not have a VPCNetworkConfiguration assigned. When a field is not set
@@ -35,27 +29,18 @@ type VPCNetworkConfigurationSpec struct {
 	// Private IPs.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
 
-	// ShortID specifies Identifier to use when displaying VPC context in logs.
-	// Less than equal to 8 characters.
-	// +kubebuilder:validation:MaxLength=8
-	// +optional
-	ShortID string `json:"shortID,omitempty"`
-
 	// Default size of Subnets.
 	// Defaults to 32.
 	// +kubebuilder:default=32
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
-
-	// PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVMs.
-	// Must be Public, Private or PrivateTGW.
-	// +kubebuilder:validation:Enum=Public;Private;PrivateTGW
-	PodSubnetAccessMode string `json:"podSubnetAccessMode,omitempty"`
 }
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration
 type VPCNetworkConfigurationStatus struct {
 	// VPCs describes VPC info, now it includes lb Subnet info which are needed for AKO.
 	VPCs []VPCInfo `json:"vpcs,omitempty"`
+	// Conditions describe current state of VPCNetworkConfiguration.
+	Conditions []Condition `json:"conditions,omitempty"`
 }
 
 // VPCInfo defines VPC info needed by tenant admin.
@@ -66,6 +51,8 @@ type VPCInfo struct {
 	AVISESubnetPath string `json:"lbSubnetPath,omitempty"`
 	// NSXLoadBalancerPath is the NSX Policy path for the NSX Load Balancer.
 	NSXLoadBalancerPath string `json:"nsxLoadBalancerPath,omitempty"`
+	// NSX Policy path for VPC.
+	VPCPath string `json:"vpcPath"`
 }
 
 // +genclient
