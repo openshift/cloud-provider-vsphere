@@ -20,17 +20,15 @@ set -o pipefail
 
 REPO_ROOT=$(realpath "$(dirname "${BASH_SOURCE[0]}")/..")
 OPENSHIFT_CI=${OPENSHIFT_CI:-""}
-LOCAL_BINARIES_PATH=$REPO_ROOT/.build
 
 # Change directories to the parent directory of the one in which this
 # script is located.
 cd "$REPO_ROOT"
 
 function runGoimports() {
-    # Goimports acting like gofmt. So, no need to rum fmt separately
-    local GOIMPORTS_PATH=$LOCAL_BINARIES_PATH/goimports
-    GOBIN=$LOCAL_BINARIES_PATH go install -mod=readonly golang.org/x/tools/cmd/goimports@latest
-    $GOIMPORTS_PATH -e -w ./cmd/ ./pkg/
+    # use the goimports that is bundled in the openshift build images
+    find "./cmd" -name '*.go' ! -path '*/vendor/*' ! -path '*/.build/*' -exec goimports -w {} \+
+    find "./pkg" -name '*.go' ! -path '*/vendor/*' ! -path '*/.build/*' -exec goimports -w {} \+
     echo "fmt and goimports done"
 }
 
