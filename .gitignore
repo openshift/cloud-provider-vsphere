@@ -23,6 +23,7 @@
 
 
 *.json
+!vendor/**/*.json
 *.sublime-project
 *.sublime-workspace
 *.swp
@@ -167,4 +168,3 @@ zz_generated.openapi.go
 
 # Output of the go coverage tool
 *.out
-coverage.*
