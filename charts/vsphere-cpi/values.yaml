@@ -12,6 +12,7 @@ config:
   region: "k8s-region"
   zone: "k8s-zone"
   thumbprint: ""
+  caFile: "" # Path to the ca-file if it has been mounted into the pod.
   secret:
     # Specifies whether Secret should be created from config values
     create: true
@@ -49,7 +50,7 @@ serviceAccount:
 daemonset:
   annotations: {}
   image: registry.k8s.io/cloud-pv-vsphere/cloud-provider-vsphere
-  tag: v1.32.1
+  tag: v1.33.0
   pullPolicy: IfNotPresent
   dnsPolicy: ClusterFirst
   cmdline:
@@ -93,3 +94,6 @@ daemonset:
           - matchExpressions:
               - key: node-role.kubernetes.io/control-plane
                 operator: Exists
+  extraVolumes: []
+  extraVolumesMounts: []
+  hostAliases: []

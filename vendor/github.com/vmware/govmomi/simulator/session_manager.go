@@ -6,6 +6,8 @@ package simulator
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -18,6 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/vmware/govmomi/session"
+	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -29,7 +32,7 @@ type SessionManager struct {
 	nopLocker
 
 	ServiceHostName string
-	TLSCert         func() string
+	TLS             func() *tls.Config
 	ValidLogin      func(*types.Login) bool
 
 	sessions map[string]Session
@@ -70,6 +73,7 @@ func createSession(ctx *Context, name string, locale string) types.UserSession {
 			ExtensionSession: types.NewBool(false),
 		},
 		Registry: NewRegistry(),
+		Map:      ctx.Map,
 	}
 
 	ctx.SetSession(session, true)
@@ -118,6 +122,13 @@ func (s *SessionManager) Authenticate(u url.URL, req *types.Login) bool {
 
 	pass, _ := u.User.Password()
 	return req.UserName == u.User.Username() && req.Password == pass
+}
+
+func (s *SessionManager) TLSCert() string {
+	if s.TLS == nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(s.TLS().Certificates[0].Certificate[0])
 }
 
 func (s *SessionManager) Login(ctx *Context, req *types.Login) soap.HasFault {
@@ -331,6 +342,10 @@ func HTTPCookie(ctx *Context) string {
 	return ""
 }
 
+func (c *Context) sessionManager() *SessionManager {
+	return c.svc.sdk[vim25.Path].SessionManager()
+}
+
 // mapSession maps an HTTP cookie to a Session.
 func (c *Context) mapSession() {
 	cookie := c.Map.Cookie
@@ -338,7 +353,7 @@ func (c *Context) mapSession() {
 		cookie = HTTPCookie
 	}
 
-	if val, ok := c.svc.sm.getSession(cookie(c)); ok {
+	if val, ok := c.sessionManager().getSession(cookie(c)); ok {
 		c.SetSession(val, false)
 	}
 }
@@ -386,7 +401,8 @@ func (c *Context) SetSession(session Session, login bool) {
 	session.LastActiveTime = time.Now()
 	session.CallCount++
 
-	c.svc.sm.putSession(session)
+	m := c.sessionManager()
+	m.putSession(session)
 	c.Session = &session
 
 	if login {
@@ -404,7 +420,7 @@ func (c *Context) SetSession(session Session, login bool) {
 			Locale:    session.Locale,
 		})
 
-		SessionIdleWatch(c.Context, session.Key, c.svc.sm.expiredSession)
+		SessionIdleWatch(c.Context, session.Key, m.expiredSession)
 	}
 }
 
@@ -447,6 +463,7 @@ func (c *Context) postEvent(events ...types.BaseEvent) {
 type Session struct {
 	types.UserSession
 	*Registry
+	Map *Registry
 }
 
 func (s *Session) setReference(item mo.Reference) {
@@ -477,7 +494,7 @@ func (s *Session) Get(ref types.ManagedObjectReference) mo.Reference {
 	switch ref.Type {
 	case "SessionManager":
 		// Clone SessionManager so the PropertyCollector can properly report CurrentSession
-		m := *Map.SessionManager()
+		m := *s.Map.SessionManager()
 		m.CurrentSession = &s.UserSession
 
 		// TODO: we could maintain SessionList as part of the SessionManager singleton
@@ -489,10 +506,10 @@ func (s *Session) Get(ref types.ManagedObjectReference) mo.Reference {
 
 		return &m
 	case "PropertyCollector":
-		if ref == Map.content().PropertyCollector {
+		if ref == s.Map.content().PropertyCollector {
 			// Per-session instance of the PropertyCollector singleton.
 			// Using reflection here as PropertyCollector might be wrapped with a custom type.
-			obj = Map.Get(ref)
+			obj = s.Map.Get(ref)
 			pc := reflect.New(reflect.TypeOf(obj).Elem())
 			obj = pc.Interface().(mo.Reference)
 			s.Registry.setReference(obj, ref)
@@ -500,5 +517,5 @@ func (s *Session) Get(ref types.ManagedObjectReference) mo.Reference {
 		}
 	}
 
-	return Map.Get(ref)
+	return s.Map.Get(ref)
 }
