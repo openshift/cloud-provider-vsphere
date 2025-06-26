@@ -76,12 +76,22 @@ var vsphereOperationErrorMetric = prometheus.NewCounterVec(
 	[]string{"operation"},
 )
 
-// RegisterMetrics registers all the API and Operation metrics
+// vCenterVersionMetric tracks vCenter versions in use
+var vCenterVersionMetric = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "cloudprovider_vsphere_vcenter_versions",
+		Help: "Tracks vCenter versions in use",
+	},
+	[]string{"vcenter", "version"},
+)
+
+// RegisterMetrics registers all the API, Operation, and vCenter version metrics
 func RegisterMetrics() {
 	prometheus.MustRegister(vsphereAPIMetric)
 	prometheus.MustRegister(vsphereAPIErrorMetric)
 	prometheus.MustRegister(vsphereOperationMetric)
 	prometheus.MustRegister(vsphereOperationErrorMetric)
+	prometheus.MustRegister(vCenterVersionMetric)
 }
 
 // RecordvSphereMetric records the vSphere API and Operation metrics
@@ -121,6 +131,14 @@ func RecordCreateVolumeMetric(volumeOptions *VolumeOptions, requestTime time.Tim
 		actionName = OperationCreateVolume
 	}
 	RecordvSphereMetric(actionName, requestTime, err)
+}
+
+// RecordvCenterVersionMetric records the vCenter version metric
+func RecordvCenterVersionMetric(vcenter, version string) {
+	vCenterVersionMetric.With(prometheus.Labels{
+		"vcenter": vcenter,
+		"version": version,
+	}).Set(1) // Set to 1 to indicate the presence of this vCenter/version
 }
 
 func calculateTimeTaken(requestBeginTime time.Time) (timeTaken float64) {
