@@ -5,6 +5,7 @@
 package simulator
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"sync"
@@ -172,8 +173,8 @@ func (s *ServiceRegistration) List(ctx *simulator.Context, req *types.List) soap
 }
 
 // BreakLookupServiceURLs makes the path of all lookup service urls invalid
-func BreakLookupServiceURLs() {
-	setting := simulator.Map.OptionManager().Setting
+func BreakLookupServiceURLs(ctx context.Context) {
+	setting := simulator.Map(ctx).OptionManager().Setting
 
 	for _, s := range setting {
 		o := s.GetOptionValue()
@@ -181,6 +182,22 @@ func BreakLookupServiceURLs() {
 			val := o.Value.(string)
 			u, _ := url.Parse(val)
 			u.Path = "/enoent" + u.Path
+			o.Value = u.String()
+		}
+	}
+}
+
+// UnresolveLookupServiceURLs makes the path of all lookup service urls invalid
+func UnresolveLookupServiceURLs(ctx context.Context) {
+	setting := simulator.Map(ctx).OptionManager().Setting
+
+	for _, s := range setting {
+		o := s.GetOptionValue()
+		if strings.HasSuffix(o.Key, ".uri") {
+			val := o.Value.(string)
+			u, _ := url.Parse(val)
+			port := u.Port()
+			u.Host = "fake-name-will-not-dns-resolve:" + port
 			o.Value = u.String()
 		}
 	}
