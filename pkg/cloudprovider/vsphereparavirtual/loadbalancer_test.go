@@ -47,8 +47,8 @@ var (
 	testK8sServiceName      = "test-lb-service"
 	testK8sServiceNameSpace = "test-service-ns"
 	testOwnerReference      = metav1.OwnerReference{
-		APIVersion: "v1alpha1",
-		Kind:       "TanzuKubernetesCluster",
+		APIVersion: "v1beta2",
+		Kind:       "Cluster",
 		Name:       testClustername,
 		UID:        "1bbf49a7-fbce-4502-bb4c-4c3544cacc9e",
 	}
@@ -60,26 +60,34 @@ func newTestLoadBalancer() (cloudprovider.LoadBalancer, *dynamicfake.FakeDynamic
 	fc := dynamicfake.NewSimpleDynamicClient(scheme)
 	fcw := vmopclient.NewFakeClientSet(fc)
 
-	vms := vmservice.NewVMService(fcw, testClusterNameSpace, &testOwnerReference)
+	vms := vmservice.NewVMService(fcw, testClusterNameSpace, &testOwnerReference, false)
 	return &loadBalancer{vmService: vms}, fc
 }
 
 func TestNewLoadBalancer(t *testing.T) {
 	testCases := []struct {
-		name   string
-		config *rest.Config
-		err    error
+		name                                string
+		config                              *rest.Config
+		serviceAnnotationPropagationEnabled bool
+		err                                 error
 	}{
 		{
-			name:   "NewLoadBalancer: when everything is ok",
-			config: &rest.Config{},
-			err:    nil,
+			name:                                "NewLoadBalancer: when serviceAnnotationPropagationEnabled is false",
+			config:                              &rest.Config{},
+			serviceAnnotationPropagationEnabled: false,
+			err:                                 nil,
+		},
+		{
+			name:                                "NewLoadBalancer: when serviceAnnotationPropagationEnabled is true",
+			config:                              &rest.Config{},
+			serviceAnnotationPropagationEnabled: true,
+			err:                                 nil,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := NewLoadBalancer(testClusterNameSpace, testCase.config, &testOwnerReference)
+			_, err := NewLoadBalancer(testClusterNameSpace, testCase.config, &testOwnerReference, testCase.serviceAnnotationPropagationEnabled)
 			assert.Equal(t, testCase.err, err)
 		})
 	}

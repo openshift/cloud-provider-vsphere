@@ -10,13 +10,13 @@ providers:
 - name: cluster-api
   type: CoreProvider
   versions:
-  - name: v1.9.1
+  - name: v1.11.99
     # Use manifest from source files
-    value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.1/core-components.yaml"
+    value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.0-alpha.2/core-components.yaml"
     type: "url"
-    contract: v1beta1
+    contract: v1beta2
     files:
-    - sourcePath: "../data/shared/capi/v1.9/metadata.yaml"
+    - sourcePath: "../data/shared/capi/v1.11/metadata.yaml"
     replacements:
     - old: "imagePullPolicy: Always"
       new: "imagePullPolicy: IfNotPresent"
@@ -24,13 +24,13 @@ providers:
 - name: kubeadm
   type: BootstrapProvider
   versions:
-  - name: v1.9.1
+  - name: v1.11.99
     # Use manifest from source files
-    value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.1/bootstrap-components.yaml"
+    value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.0-alpha.2/bootstrap-components.yaml"
     type: "url"
-    contract: v1beta1
+    contract: v1beta2
     files:
-    - sourcePath: "../data/shared/capi/v1.9/metadata.yaml"
+    - sourcePath: "../data/shared/capi/v1.11/metadata.yaml"
     replacements:
     - old: "imagePullPolicy: Always"
       new: "imagePullPolicy: IfNotPresent"
@@ -38,13 +38,13 @@ providers:
 - name: kubeadm
   type: ControlPlaneProvider
   versions:
-  - name: v1.9.1
+  - name: v1.11.99
     # Use manifest from source files
-    value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.1/control-plane-components.yaml"
+    value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.0-alpha.2/control-plane-components.yaml"
     type: "url"
-    contract: v1beta1
+    contract: v1beta2
     files:
-    - sourcePath: "../data/shared/capi/v1.9/metadata.yaml"
+    - sourcePath: "../data/shared/capi/v1.11/metadata.yaml"
     replacements:
     - old: "imagePullPolicy: Always"
       new: "imagePullPolicy: IfNotPresent"
@@ -52,9 +52,9 @@ providers:
 - name: vsphere
   type: InfrastructureProvider
   versions:
-  - name: v1.12.0
+  - name: v1.14.99
     # Use manifest from source files
-    value: "https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/releases/download/v1.12.0/infrastructure-components.yaml"
+    value: "https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/releases/download/v1.14.0-alpha.2/infrastructure-components.yaml"
     type: "url"
     contract: v1beta1
     files:
@@ -65,15 +65,15 @@ providers:
     - sourcePath: "../data/shared/capv/main/metadata.yaml"
 
 variables:
-  KUBERNETES_VERSION: "v1.32.0"
+  KUBERNETES_VERSION: "v1.33.0"
   #! KUBERNETES_VERSION_LATEST_CI can have the following formats:
   #! * v1.28.0 => will return the same version for convenience
   #! * stable-1.28 => will return the latest patch release for v1.28, e.g. v1.28.5
   #! * ci/latest-1.28 => will return the latest built version from the release branch, e.g. v1.28.5-26+72feddd3acde14
-  KUBERNETES_VERSION_LATEST_CI: "ci/latest-1.32"
-  KUBERNETES_VERSION_UPGRADE_FROM: "v1.31.0"
-  KUBERNETES_VERSION_UPGRADE_TO: "v1.32.0"
-  CPI_IMAGE_K8S_VERSION: "v1.32.0"
+  KUBERNETES_VERSION_LATEST_CI: "ci/latest-1.34"
+  KUBERNETES_VERSION_UPGRADE_FROM: "v1.32.0"
+  KUBERNETES_VERSION_UPGRADE_TO: "v1.33.0"
+  CPI_IMAGE_K8S_VERSION: "v1.33.0"
   CNI: "./data/cni/calico/calico.yaml"
   EXP_CLUSTER_RESOURCE_SET: "true"
   EXP_KUBEADM_BOOTSTRAP_FORMAT_IGNITION: "true"
@@ -82,15 +82,15 @@ variables:
   IP_FAMILY: "IPv4"
   CLUSTER_CLASS_NAME: "quick-start"
   # Following CAPV variables should be set before testing
-  VSPHERE_COMPUTE_CLUSTER: "Cluster-1"
-  VSPHERE_DATACENTER:  "SDDC-Datacenter"
-  VSPHERE_FOLDER: "/SDDC-Datacenter/vm/Workloads/cloud-provider-vsphere"
-  VSPHERE_RESOURCE_POOL: "/SDDC-Datacenter/host/Cluster-1/Resources/Compute-ResourcePool/cloud-provider-vsphere"
-  VSPHERE_DATASTORE: "WorkloadDatastore"
-  VSPHERE_STORAGE_POLICY: "Cluster API vSphere Storage Policy"
-  VSPHERE_NETWORK: "sddc-cgw-network-10"
-  VSPHERE_TEMPLATE: "ubuntu-2204-kube-v1.32.0"
-  FLATCAR_VSPHERE_TEMPLATE: "flatcar-stable-4081.2.0-kube-v1.32.0"
+  VSPHERE_COMPUTE_CLUSTER: "k8s-gcve-cluster"
+  VSPHERE_DATACENTER:  "Datacenter"
+  VSPHERE_FOLDER: "/Datacenter/vm/Workloads/prow"
+  VSPHERE_RESOURCE_POOL: "/Datacenter/host/k8s-gcve-cluster/Resources/prow"
+  VSPHERE_DATASTORE: "vsanDatastore"
+  VSPHERE_STORAGE_POLICY: "vSAN Default Storage Policy"
+  VSPHERE_NETWORK: "k8s-ci"
+  VSPHERE_TEMPLATE: "ubuntu-2404-kube-v1.33.0"
+  FLATCAR_VSPHERE_TEMPLATE: "flatcar-stable-4152.2.2-kube-v1.33.0"
   VSPHERE_INSECURE_CSI: "true"
   KUBETEST_CONFIGURATION: "./data/kubetest/conformance.yaml"
   NODE_DRAIN_TIMEOUT: "60s"

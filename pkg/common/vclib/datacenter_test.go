@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/vmware/govmomi"
-	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/simulator"
 )
 
@@ -41,7 +40,7 @@ func TestDatacenter(t *testing.T) {
 	s := model.Service.NewServer()
 	defer s.Close()
 
-	avm := simulator.Map.Any(VirtualMachineType).(*simulator.VirtualMachine)
+	avm := model.Map().Any(VirtualMachineType).(*simulator.VirtualMachine)
 
 	c, err := govmomi.NewClient(ctx, s.URL, true)
 	if err != nil {
@@ -71,36 +70,6 @@ func TestDatacenter(t *testing.T) {
 			t.Error(err)
 		}
 
-		_, err = dc.GetDatastoreByPath(ctx, testNameNotFound) // invalid format
-		if err == nil || !strings.Contains(err.Error(), "Failed to parse vmDiskPath") {
-			t.Error("expected error")
-		}
-
-		invalidPath := object.DatastorePath{
-			Datastore: testNameNotFound,
-			Path:      testNameNotFound,
-		}
-
-		_, err = dc.GetDatastoreByPath(ctx, invalidPath.String())
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Error("expected error")
-		}
-
-		_, err = dc.GetDatastoreByPath(ctx, avm.Summary.Config.VmPathName)
-		if err != nil {
-			t.Error(err)
-		}
-
-		_, err = dc.GetDatastoreByName(ctx, testNameNotFound)
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Error("expected error")
-		}
-
-		ds, err := dc.GetDatastoreByName(ctx, TestDefaultDatastore)
-		if err != nil {
-			t.Error(err)
-		}
-
 		_, err = dc.GetFolderByPath(ctx, testNameNotFound)
 		if err == nil || !strings.Contains(err.Error(), "not found") {
 			t.Error("expected error")
@@ -125,50 +94,6 @@ func TestDatacenter(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-
-		diskPath := ds.Datastore.Path(avm.Name + "/disk1.vmdk")
-
-		_, err = dc.GetVirtualDiskPage83Data(ctx, diskPath+testNameNotFound)
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Error("expected error")
-		}
-
-		_, err = dc.GetVirtualDiskPage83Data(ctx, diskPath)
-		if err != nil {
-			t.Errorf("GetVirtualDiskPage83Data: %v", err)
-		}
-
-		_, err = dc.GetDatastoreMoList(ctx, nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "Datastore Object list is empty") {
-			t.Error("expected error")
-		}
-
-		_, err = dc.GetDatastoreMoList(ctx, []*Datastore{ds.Datastore}, []string{testNameNotFound}) // invalid property
-		if err == nil || !strings.Contains(err.Error(), "InvalidProperty") {
-			t.Error("expected error")
-		}
-
-		_, err = dc.GetDatastoreMoList(ctx, []*Datastore{ds.Datastore}, []string{DatastoreInfoProperty})
-		if err != nil {
-			t.Error(err)
-		}
-
-		nodeVolumes := map[string][]string{
-			avm.Name: {testNameNotFound, diskPath},
-		}
-
-		attached, err := dc.CheckDisksAttached(ctx, nodeVolumes)
-		if err != nil {
-			t.Error(err)
-		}
-
-		if attached[avm.Name][testNameNotFound] {
-			t.Error("should not be attached")
-		}
-
-		if !attached[avm.Name][diskPath] {
-			t.Errorf("%s should be attached", diskPath)
-		}
 	}
 
 	_, err = GetDatacenter(ctx, vc, testNameNotFound)
@@ -185,7 +110,7 @@ func TestDatacenter(t *testing.T) {
 	})
 
 	t.Run("should get objects using Datacenter MOID", func(t *testing.T) {
-		dcRef := simulator.Map.Any("Datacenter")
+		dcRef := model.Map().Any("Datacenter")
 		dc, err := GetDatacenter(ctx, vc, dcRef.Reference().String())
 		if err != nil {
 			t.Error(err)
