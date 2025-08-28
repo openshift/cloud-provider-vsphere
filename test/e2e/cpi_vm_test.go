@@ -15,7 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/cluster-api/api/v1beta1"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/test/framework"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -44,8 +45,8 @@ func getWorkerNode() (*corev1.Node, error) {
 }
 
 // getWorkerMachine retrieves the CAPI machine object with name from the boostrap cluster
-func getWorkerMachine(name string) (*v1beta1.Machine, error) {
-	machineList := &v1beta1.MachineList{}
+func getWorkerMachine(name string) (*v1beta2.Machine, error) {
+	machineList := &v1beta2.MachineList{}
 	err := proxy.GetClient().List(ctx, machineList)
 	if err != nil {
 		return nil, errors.New("failed to list Machines")
@@ -62,7 +63,7 @@ func getWorkerMachine(name string) (*v1beta1.Machine, error) {
 
 // deleteWorkerMachine deletes the CAPI machine object with name from the boostrap cluster
 func deleteWorkerMachine(name string) error {
-	machine := &v1beta1.Machine{
+	machine := &v1beta2.Machine{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: machineNamespace,
@@ -180,7 +181,7 @@ var _ = Describe("Restarting, recreating and deleting VMs", func() {
 
 	var originalWorkerNodeName string
 	var workerNode *corev1.Node
-	var workerMachine *v1beta1.Machine
+	var workerMachine *v1beta2.Machine
 	var workerVM *object.VirtualMachine
 
 	BeforeEach(func() {
@@ -233,7 +234,7 @@ var _ = Describe("Restarting, recreating and deleting VMs", func() {
 					Name:      workloadResult.Cluster.Name,
 				})
 
-				return wldCluster.Spec.Paused
+				return ptr.Deref(wldCluster.Spec.Paused, false)
 			}, 180*time.Second, 10*time.Second).Should(BeTrue(), "Failed to pause the Workload Cluster")
 		})
 
@@ -274,7 +275,7 @@ var _ = Describe("Restarting, recreating and deleting VMs", func() {
 					Name:      workloadResult.Cluster.Name,
 				})
 
-				return wldCluster.Spec.Paused
+				return ptr.Deref(wldCluster.Spec.Paused, false)
 			}, 180*time.Second, 10*time.Second).Should(BeFalse(), "Failed to unpause the Workload Cluster")
 		})
 
