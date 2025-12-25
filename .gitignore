@@ -21,9 +21,13 @@
 # Ignore the binaries copied into the staging areas.
 /cluster/images/controller-manager/vsphere-cloud-controller-manager*
 
+# Ignore vendor at the root and test of the project. Please note that
+# /vendor/bitbucket.org/ww/goautoneg is versioned forcefully in order to
+# bypass a build issue.
+/vendor
+/test/e2e/vendor
 
 *.json
-!vendor/**/*.json
 *.sublime-project
 *.sublime-workspace
 *.swp
@@ -168,3 +172,4 @@ zz_generated.openapi.go
 
 # Output of the go coverage tool
 *.out
+coverage.*

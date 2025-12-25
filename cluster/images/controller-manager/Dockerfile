@@ -14,7 +14,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.24.6
+ARG GOLANG_IMAGE=golang:1.25.0
 
 # The distroless image on which the CPI manager image is built.
 ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian11:latest
@@ -27,7 +27,7 @@ ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian11:latest
 FROM ${GOLANG_IMAGE} as builder
 
 # This build arg is the version to embed in the CPI binary
-ARG VERSION=1.34.0
+ARG VERSION=1.35.0
 
 # This build arg controls the GOPROXY setting
 ARG GOPROXY
@@ -45,7 +45,7 @@ RUN go build -a -ldflags="-w -s -extldflags=static -X main.version=${VERSION}" -
 ################################################################################
 # Copy the manager into the distroless image.
 FROM ${DISTROLESS_IMAGE}
-LABEL maintainer="Gong Zhang <gong.zhang@broadcom.com>"
+LABEL maintainer="Danqing Hou <danqing.hou@broadcom.com>"
 
 USER nobody
 

@@ -390,11 +390,76 @@ squash:
 docker-image:
 	docker build \
 	-f cluster/images/controller-manager/Dockerfile \
-	-t "$(IMAGE):$(BRANCH_NAME)" . \
+	-t "$(IMAGE):$(BRANCH_NAME)" \
+	--build-arg "VERSION=${VERSION}" . \
 
+################################################################################
+##                            GCP CLOUDBUILD RELEATED                         ##
+################################################################################
+# Define DGCP Cloud build related variables.
+PROD_REGISTRY ?= registry.k8s.io/cloud-pv-vsphere
 
-## --------------------------------------
-## Openshift specific include
-## --------------------------------------
+STAGING_REGISTRY ?= gcr.io/k8s-staging-cloud-pv-vsphere
+STAGING_BUCKET ?= k8s-staging-cloud-pv-vsphere
 
-include openshift.mk
+IMAGE_NAME ?= cloud-provider-vsphere
+VERSION ?=$(shell git describe --dirty --always)
+# Default image registry and image binary path
+IMAGE_PATH := $(STAGING_REGISTRY)/$(IMAGE_NAME):$(VERSION)
+BINARY_PATH := gs://$(STAGING_BUCKET)/$(VERSION)/bin/$(GOOS)/$(GOARCH)
+LOCAL_BINARY_PATH := $(abspath $(BIN_OUT))/vsphere-cloud-controller-manager.$(GOOS)_$(GOARCH)
+## latest git tag for the commit, e.g., v0.3.10
+RELEASE_TAG ?= $(shell git describe --abbrev=0 2>/dev/null)
+## Hardcode active reviews
+IMAGE_REVIEWERS="@chenlin07 @DanielXiao @fabriziopandini @sbueringer @silvery1622 @zhanggbj"
+
+.PHONY: docker-build-and-push
+docker-build-and-push: 
+	docker build \
+	-f cluster/images/controller-manager/Dockerfile \
+	-t $(IMAGE_PATH) \
+	--build-arg "VERSION=${VERSION}" \
+	--build-arg "GOPROXY=${GOPROXY}" \
+	.
+	docker push "$(IMAGE_PATH)"
+
+.PHONY: ccm-bin-push
+ccm-bin-push:
+	$(shell { sha256sum $(LOCAL_BINARY_PATH) || shasum -a 256 $(LOCAL_BINARY_PATH); } 2>/dev/null > $(LOCAL_BINARY_PATH).sha256)
+	gsutil cp "$(LOCAL_BINARY_PATH)" "$(BINARY_PATH)/vsphere-cloud-controller-manager"
+	gsutil cp "$(LOCAL_BINARY_PATH).sha256" "$(BINARY_PATH)/vsphere-cloud-controller-manager.sha256"
+
+.PHONY: pr-staging
+pr-staging: 
+	$(MAKE) IMAGE_PATH=$(STAGING_REGISTRY)/pr/$(IMAGE_NAME):$(VERSION) docker-build-and-push
+	$(MAKE) build-bins
+	$(MAKE) BINARY_PATH=gs://$(STAGING_BUCKET)/pr/$(VERSION)/bin/$(GOOS)/$(GOARCH) ccm-bin-push
+
+.PHONY: ci-staging
+ci-staging: 
+	$(MAKE) IMAGE_PATH=$(STAGING_REGISTRY)/ci/$(IMAGE_NAME):$(VERSION) docker-build-and-push
+	$(MAKE) build-bins
+	$(MAKE) BINARY_PATH=gs://$(STAGING_BUCKET)/ci/$(VERSION)/bin/$(GOOS)/$(GOARCH) ccm-bin-push
+
+.PHONY: release-staging-nightly
+release-staging-nightly: 
+	$(MAKE) IMAGE_PATH=$(STAGING_REGISTRY)/nightly/$(IMAGE_NAME):$(VERSION)-$(shell date +'%Y%m%d') docker-build-and-push
+	$(MAKE) build-bins
+	$(MAKE) BINARY_PATH=gs://$(STAGING_BUCKET)/nightly/$(VERSION)-$(shell date +'%Y%m%d')/bin/$(GOOS)/$(GOARCH) ccm-bin-push
+
+.PHONY: release-staging
+release-staging: 
+	$(MAKE) docker-build-and-push
+	$(MAKE) build-bins
+	$(MAKE) ccm-bin-push
+
+.PHONY: promote-images
+promote-images: $(KPROMO)
+ifeq ($(strip $(USER_FORK)),)
+	$(error USER_FORK is required. Usage: make deploy USER_FORK=githubid)
+endif
+	@echo "Promoting image using fork repo of: $(USER_FORK)"
+	$(KPROMO) pr --project cloud-pv-vsphere --tag $(RELEASE_TAG) --reviewers "$(IMAGE_REVIEWERS)" --fork $(USER_FORK) --image cloud-provider-vsphere
+
+$(KPROMO):
+	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(KPROMO_PKG) $(KPROMO_BIN) $(KPROMO_VER)
