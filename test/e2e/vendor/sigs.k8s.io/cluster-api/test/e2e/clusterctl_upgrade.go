@@ -222,10 +222,7 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 		Expect(input.InitWithKubernetesVersion).ToNot(BeEmpty(), "Invalid argument. input.InitWithKubernetesVersion can't be empty when calling %s spec", specName)
 		if input.KindManagementClusterNewClusterProxyFunc == nil {
 			input.KindManagementClusterNewClusterProxyFunc = func(name string, kubeconfigPath string) framework.ClusterProxy {
-				scheme := apiruntime.NewScheme()
-				framework.TryAddDefaultSchemes(scheme)
-				_ = clusterv1beta1.AddToScheme(scheme)
-				return framework.NewClusterProxy(name, kubeconfigPath, scheme)
+				return framework.NewClusterProxy(name, kubeconfigPath, initScheme(), framework.WithMachineLogCollector(framework.DockerLogCollector{}))
 			}
 		}
 
@@ -341,6 +338,9 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 			// Get a ClusterProxy so we can interact with the workload cluster
 			managementClusterProxy = input.BootstrapClusterProxy.GetWorkloadCluster(ctx, cluster.Namespace, cluster.Name, framework.WithMachineLogCollector(input.BootstrapClusterProxy.GetLogCollector()))
 		}
+
+		// Add v1beta1 schema so we can get v1beta1 Clusters below.
+		_ = clusterv1beta1.AddToScheme(managementClusterProxy.GetScheme())
 
 		By("Turning the new cluster into a management cluster with older versions of providers")
 
@@ -738,12 +738,14 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 					Namespace: workloadCluster.Namespace,
 				})
 
-				Byf("[%d] Verify Machines Ready condition is true", i)
-				framework.VerifyMachinesReady(ctx, framework.VerifyMachinesReadyInput{
-					Lister:    managementClusterProxy.GetClient(),
-					Name:      workloadCluster.Name,
-					Namespace: workloadCluster.Namespace,
-				})
+				if len(postUpgradeMachineList.Items) > 0 {
+					Byf("[%d] Verify Machines Ready condition is true", i)
+					framework.VerifyMachinesReady(ctx, framework.VerifyMachinesReadyInput{
+						Lister:    managementClusterProxy.GetClient(),
+						Name:      workloadCluster.Name,
+						Namespace: workloadCluster.Namespace,
+					})
+				}
 			}
 
 			// Note: It is a known issue on Kubernetes < v1.29 that SSA sometimes fail:
@@ -779,7 +781,13 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 	AfterEach(func() {
 		if testNamespace != nil {
 			// Dump all the logs from the workload cluster before deleting them.
-			framework.DumpAllResourcesAndLogs(ctx, managementClusterProxy, input.ClusterctlConfigPath, input.ArtifactFolder, testNamespace, managementClusterResources.Cluster)
+			framework.DumpAllResourcesAndLogs(ctx, managementClusterProxy, input.ClusterctlConfigPath, input.ArtifactFolder, testNamespace, &clusterv1.Cluster{
+				// DumpAllResourcesAndLogs only uses Namespace + Name from the Cluster object.
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: testNamespace.Name,
+					Name:      workloadClusterName,
+				},
+			})
 
 			if !input.SkipCleanup {
 				Byf("Deleting all clusters in namespace %s in management cluster %s", testNamespace.Name, managementClusterName)
@@ -811,6 +819,8 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 
 		// Dumps all the resources in the spec namespace, then cleanups the cluster object and the spec namespace itself.
 		if input.UseKindForManagementCluster {
+			dumpKindClusterLogs(ctx, input.ArtifactFolder, managementClusterProxy)
+
 			if !input.SkipCleanup {
 				managementClusterProxy.Dispose(ctx)
 				managementClusterProvider.Dispose(ctx)
@@ -845,6 +855,8 @@ func downloadToTmpFile(ctx context.Context, url string) string {
 	resp, err := http.DefaultClient.Do(req)
 	Expect(err).ToNot(HaveOccurred(), "failed to get clusterctl")
 	defer resp.Body.Close()
+
+	Expect(resp.StatusCode).To(Equal(http.StatusOK), "unexpected status code when downloading clusterctl")
 
 	// Write the body to file
 	_, err = io.Copy(tmpFile, resp.Body)
@@ -998,20 +1010,42 @@ func calculateExpectedMachinePoolMachineCount(ctx context.Context, c client.Clie
 		client.MatchingLabels{clusterv1.ClusterNameLabel: workloadClusterName},
 	); err == nil {
 		for _, mp := range machinePoolList.Items {
-			ref := &corev1.ObjectReference{}
-			err = util.UnstructuredUnmarshalField(&mp, ref, "spec", "template", "spec", "infrastructureRef")
-			if err != nil && !errors.Is(err, util.ErrUnstructuredFieldNotFound) {
-				return 0, err
+			var infraMachinePool *unstructured.Unstructured
+
+			// Fallback to v1beta1's objectReference
+			if coreCAPIStorageVersion == "v1beta1" {
+				ref := &corev1.ObjectReference{}
+				err = util.UnstructuredUnmarshalField(&mp, ref, "spec", "template", "spec", "infrastructureRef")
+				if err != nil && !errors.Is(err, util.ErrUnstructuredFieldNotFound) {
+					return 0, err
+				}
+
+				infraMachinePool, err = external.Get(ctx, c, ref)
+				if err != nil {
+					return 0, err
+				}
+			} else {
+				ref := clusterv1.ContractVersionedObjectReference{}
+				err = util.UnstructuredUnmarshalField(&mp, &ref, "spec", "template", "spec", "infrastructureRef")
+				if err != nil && !errors.Is(err, util.ErrUnstructuredFieldNotFound) {
+					return 0, err
+				}
+
+				infraMachinePool, err = external.GetObjectFromContractVersionedRef(ctx, c, ref, mp.GetNamespace())
+				if err != nil {
+					return 0, err
+				}
 			}
 
-			infraMachinePool, err := external.Get(ctx, c, ref)
-			if err != nil {
-				return 0, err
-			}
 			// Check if the InfraMachinePool has an infrastructureMachineKind field. If it does not, we should skip checking for MachinePool machines.
 			err = util.UnstructuredUnmarshalField(infraMachinePool, ptr.To(""), "status", "infrastructureMachineKind")
 			if err != nil && !errors.Is(err, util.ErrUnstructuredFieldNotFound) {
 				return 0, err
+			}
+
+			// The MachinePool does not support machines if the field does not exist.
+			if errors.Is(err, util.ErrUnstructuredFieldNotFound) {
+				continue
 			}
 
 			replicas, found, err := unstructured.NestedInt64(mp.Object, "spec", "replicas")
