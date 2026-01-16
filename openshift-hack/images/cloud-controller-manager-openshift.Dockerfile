@@ -4,7 +4,7 @@ COPY . .
 
 RUN make binaries
 
-FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
+FROM registry.ci.openshift.org/ocp/4.22:base-rhel9-minimal
 COPY --from=builder /go/src/github.com/openshift/cloud-provider-vsphere/.build/vsphere-cloud-controller-manager /bin/vsphere-cloud-controller-manager
 
 LABEL description="vSphere Cloud Controller Manager"
