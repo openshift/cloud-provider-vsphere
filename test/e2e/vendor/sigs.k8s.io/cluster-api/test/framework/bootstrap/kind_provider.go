@@ -36,7 +36,7 @@ const (
 	DefaultNodeImageRepository = "kindest/node"
 
 	// DefaultNodeImageVersion is the default Kubernetes version to be used for creating a kind cluster.
-	DefaultNodeImageVersion = "v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f"
+	DefaultNodeImageVersion = "v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f"
 )
 
 // KindClusterOption is a NewKindClusterProvider option.
@@ -142,10 +142,6 @@ func (k *KindClusterProvider) createKindCluster() {
 	}
 
 	cfg := &kindv1.Cluster{
-		TypeMeta: kindv1.TypeMeta{
-			APIVersion: "kind.x-k8s.io/v1alpha4",
-			Kind:       "Cluster",
-		},
 		Nodes: []kindv1.Node{
 			{
 				Role:              kindv1.ControlPlaneRole,
