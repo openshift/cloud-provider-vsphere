@@ -29,7 +29,7 @@ cd "$REPO_ROOT"
 function runGoimports() {
     # Goimports acting like gofmt. So, no need to rum fmt separately
     local GOIMPORTS_PATH=$LOCAL_BINARIES_PATH/goimports
-    GOBIN=$LOCAL_BINARIES_PATH go install -mod=readonly golang.org/x/tools/cmd/goimports@latest
+    GOBIN=$LOCAL_BINARIES_PATH go install -mod=readonly golang.org/x/tools/cmd/goimports@v0.9.1
     $GOIMPORTS_PATH -e -w ./cmd/ ./pkg/
     echo "fmt and goimports done"
 }
