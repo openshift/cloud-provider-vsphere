@@ -9,22 +9,23 @@ set -o pipefail
 
 REPO_ROOT=$(realpath "$(dirname "${BASH_SOURCE[0]}")/..")
 LOCAL_BINARIES_PATH=$REPO_ROOT/.build
-ENVTEST_VERSION=v0.6.5 # based on version declared in go.mod
-ENVTEST_ASSETS_DIR=/tmp/testbin
-ENVTEST_SETUP_SCRIPT=https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/${ENVTEST_VERSION}/hack/setup-envtest.sh
+KUBEBUILDER_ENVTEST_KUBERNETES_VERSION=${KUBEBUILDER_ENVTEST_KUBERNETES_VERSION:-1.28.0}
+ENVTEST_ASSETS_DIR=/tmp/controller-tools/envtest
 
-# Use envtest install scripts instead of manual pulling and moving kubebuilder to PATH
 function setupEnvtest() {
-    echo "Envtest version: ${ENVTEST_VERSION}."
-    mkdir -p ${ENVTEST_ASSETS_DIR}
-    test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh ${ENVTEST_SETUP_SCRIPT}
-    source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh
-    fetch_envtest_tools ${ENVTEST_ASSETS_DIR}
-    setup_envtest_env ${ENVTEST_ASSETS_DIR}
+    if [ ! -f "${ENVTEST_ASSETS_DIR}/kube-apiserver" ]; then
+        ARCH=$(go env GOARCH)
+        OS=$(go env GOOS)
+        echo "Downloading envtest binaries for k8s ${KUBEBUILDER_ENVTEST_KUBERNETES_VERSION} (${OS}/${ARCH})..."
+        curl -fSL "https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-v${KUBEBUILDER_ENVTEST_KUBERNETES_VERSION}/envtest-v${KUBEBUILDER_ENVTEST_KUBERNETES_VERSION}-${OS}-${ARCH}.tar.gz" -o /tmp/envtest.tar.gz
+        tar -xzf /tmp/envtest.tar.gz -C /tmp/
+    fi
+    export KUBEBUILDER_ASSETS="${ENVTEST_ASSETS_DIR}"
+    echo "KUBEBUILDER_ASSETS=${KUBEBUILDER_ASSETS}"
 
     # Ensure that some home var is set and that it's not the root
     export HOME=${HOME:=/tmp/kubebuilder/testing}
-    if [ $HOME == "/" ]; then
+    if [ "$HOME" == "/" ]; then
       export HOME=/tmp/kubebuilder/testing
     fi
 }
