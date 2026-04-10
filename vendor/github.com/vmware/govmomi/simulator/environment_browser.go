@@ -95,10 +95,10 @@ func (b *EnvironmentBrowser) initDescriptorReturnVal(
 		cod := types.VirtualMachineConfigOptionDescriptor{
 			Key:                 hv.String(),
 			Description:         hv.String(),
-			DefaultConfigOption: dco,
-			CreateSupported:     true,
-			RunSupported:        true,
-			UpgradeSupported:    true,
+			DefaultConfigOption: types.NewBool(dco),
+			CreateSupported:     types.NewBool(true),
+			RunSupported:        types.NewBool(true),
+			UpgradeSupported:    types.NewBool(true),
 		}
 		for hostRef, hostVer := range maxHardwareVersionForHost {
 			if hostVer >= hv {
@@ -232,7 +232,7 @@ func (b *EnvironmentBrowser) QueryConfigTarget(ctx *Context, req *types.QueryCon
 	}
 
 	target := &types.ConfigTarget{
-		SmcPresent: false,
+		SmcPresent: types.NewBool(false),
 	}
 	body.Res.Returnval = target
 

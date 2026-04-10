@@ -187,7 +187,7 @@ var HostHardwareInfo = &types.HostHardwareInfo{
 			},
 		},
 	},
-	SmcPresent: false,
+	SmcPresent: types.NewBool(false),
 	PciDevice: []types.HostPciDevice{
 		{
 			Id:           "0000:00:00.0",

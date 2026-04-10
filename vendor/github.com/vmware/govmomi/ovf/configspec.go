@@ -142,10 +142,6 @@ type ToConfigSpecOptions struct {
 	// a VirtualHardware section that have an unknown ResourceType, i.e. a value
 	// that falls outside the range of the enum CIMResourceType.
 	Strict bool
-
-	// VirtualSystemCollectionIndex specifies the index of the VirtualSystem in
-	// the OVF's VirtualSystemCollection to transform into the ConfigSpec.
-	VirtualSystemCollectionIndex *int
 }
 
 // ToConfigSpec calls ToConfigSpecWithOptions with an empty ToConfigSpecOptions
@@ -169,16 +165,7 @@ func (e Envelope) ToConfigSpecWithOptions(
 
 	vs := e.VirtualSystem
 	if vs == nil {
-		if i := opts.VirtualSystemCollectionIndex; i != nil {
-			if vsc := e.VirtualSystemCollection; vsc != nil {
-				if len(vsc.VirtualSystem) > *i {
-					vs = &vsc.VirtualSystem[*i]
-				}
-			}
-		}
-		if vs == nil {
-			return configSpec{}, errors.New("no VirtualSystem")
-		}
+		return configSpec{}, errors.New("no VirtualSystem")
 	}
 
 	// Determine if there is a default configuration.
@@ -228,10 +215,8 @@ func (e Envelope) toHardware(
 	hw = vs.VirtualHardware[0]
 
 	// Set the hardware version.
-	if hw.System != nil {
-		if vmx := hw.System.VirtualSystemType; vmx != nil {
-			dst.Version = *vmx
-		}
+	if vmx := hw.System.VirtualSystemType; vmx != nil {
+		dst.Version = *vmx
 	}
 
 	// Parse the config
@@ -286,7 +271,7 @@ func (e Envelope) toHardware(
 			}
 			dst.NumCPUs = int32(*item.VirtualQuantity)
 			if cps := item.CoresPerSocket; cps != nil {
-				dst.NumCoresPerSocket = &cps.Value
+				dst.NumCoresPerSocket = cps.Value
 			}
 
 		case Memory: // 4
@@ -1057,24 +1042,7 @@ func (e Envelope) toVAppConfig(
 				// configuration.
 				continue
 			}
-
-			// Get the default values for the current configuration from the
-			// list of default values that are per-config.
-			var value string
-			if p.Default != nil {
-				value = *p.Default
-			}
-			for _, v := range p.Values {
-				if v.Configuration == nil || *v.Configuration == configName {
-					value = v.Value
-					break
-				}
-			}
-
-			if p.UserConfigurable == nil {
-				p.UserConfigurable = types.NewBool(false)
-			}
-			np := types.VAppPropertySpec{
+			vapp.Property = append(vapp.Property, types.VAppPropertySpec{
 				ArrayUpdateSpec: types.ArrayUpdateSpec{
 					Operation: types.ArrayUpdateOperationAdd,
 				},
@@ -1087,13 +1055,11 @@ func (e Envelope) toVAppConfig(
 					Label:            deref(p.Label),
 					Type:             p.Type,
 					UserConfigurable: p.UserConfigurable,
-					DefaultValue:     value,
+					DefaultValue:     deref(p.Default),
 					Value:            "",
 					Description:      deref(p.Description),
 				},
-			}
-
-			vapp.Property = append(vapp.Property, np)
+			})
 			index++
 		}
 	}

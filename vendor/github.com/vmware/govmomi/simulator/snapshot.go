@@ -218,9 +218,3 @@ func (v *VirtualMachineSnapshot) ExportSnapshot(ctx *Context, req *types.ExportS
 		},
 	}
 }
-
-func copyConfigFromVmConfig(src *types.VirtualMachineConfigInfo) types.VirtualMachineConfigInfo {
-	var dest types.VirtualMachineConfigInfo
-	deepCopy(*src, &dest)
-	return dest
-}

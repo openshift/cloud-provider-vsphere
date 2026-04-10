@@ -77,12 +77,10 @@ type Registry struct {
 
 // tagManager is an interface to simplify internal interaction with the vapi tag manager simulator.
 type tagManager interface {
-	AttachedObjects(string) ([]types.ManagedObjectReference, types.BaseMethodFault)
-	AttachedTags(id types.ManagedObjectReference) ([]string, types.BaseMethodFault)
-	AttachTag(types.ManagedObjectReference, string) types.BaseMethodFault
-	DetachTag(types.ManagedObjectReference, string) types.BaseMethodFault
-	GetTagByCategoryAndName(string, string) (string, types.BaseMethodFault)
-	GetTagCategoryAndName(string) (string, string, types.BaseMethodFault)
+	AttachedObjects(types.VslmTagEntry) ([]types.ManagedObjectReference, types.BaseMethodFault)
+	AttachedTags(id types.ManagedObjectReference) ([]types.VslmTagEntry, types.BaseMethodFault)
+	AttachTag(types.ManagedObjectReference, types.VslmTagEntry) types.BaseMethodFault
+	DetachTag(types.ManagedObjectReference, types.VslmTagEntry) types.BaseMethodFault
 }
 
 // NewRegistry creates a new instances of Registry

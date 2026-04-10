@@ -231,7 +231,7 @@ func (m *VcenterVStorageObjectManager) createObject(ctx *Context, req *types.Cre
 	}
 
 	if !register {
-		_, err := vdmCreateVirtualDisk(ctx, types.VirtualDeviceConfigSpecFileOperationCreate, &types.CreateVirtualDisk_Task{
+		err := vdmCreateVirtualDisk(ctx, types.VirtualDeviceConfigSpecFileOperationCreate, &types.CreateVirtualDisk_Task{
 			Datacenter: &dc.Self,
 			Name:       path.String(),
 			Spec:       &types.FileBackedVirtualDiskSpec{CapacityKb: req.Spec.CapacityInMB * 1024},
@@ -395,15 +395,15 @@ func (m *VcenterVStorageObjectManager) AttachTagToVStorageObject(ctx *Context, r
 	body := new(methods.AttachTagToVStorageObjectBody)
 	ref := m.tagID(req.Id)
 
-	t, err := ctx.Map.tagManager.GetTagByCategoryAndName(req.Category, req.Tag)
-	if err != nil {
-		body.Fault_ = Fault("", err)
+	err := ctx.Map.tagManager.AttachTag(ref, types.VslmTagEntry{
+		ParentCategoryName: req.Category,
+		TagName:            req.Tag,
+	})
+
+	if err == nil {
+		body.Res = new(types.AttachTagToVStorageObjectResponse)
 	} else {
-		if err := ctx.Map.tagManager.AttachTag(ref, t); err != nil {
-			body.Fault_ = Fault("", err)
-		} else {
-			body.Res = new(types.AttachTagToVStorageObjectResponse)
-		}
+		body.Fault_ = Fault("", err)
 	}
 
 	return body
@@ -413,15 +413,15 @@ func (m *VcenterVStorageObjectManager) DetachTagFromVStorageObject(ctx *Context,
 	body := new(methods.DetachTagFromVStorageObjectBody)
 	ref := m.tagID(req.Id)
 
-	t, err := ctx.Map.tagManager.GetTagByCategoryAndName(req.Category, req.Tag)
-	if err != nil {
-		body.Fault_ = Fault("", err)
+	err := ctx.Map.tagManager.DetachTag(ref, types.VslmTagEntry{
+		ParentCategoryName: req.Category,
+		TagName:            req.Tag,
+	})
+
+	if err == nil {
+		body.Res = new(types.DetachTagFromVStorageObjectResponse)
 	} else {
-		if err := ctx.Map.tagManager.DetachTag(ref, t); err != nil {
-			body.Fault_ = Fault("", err)
-		} else {
-			body.Res = new(types.DetachTagFromVStorageObjectResponse)
-		}
+		body.Fault_ = Fault("", err)
 	}
 
 	return body
@@ -430,18 +430,18 @@ func (m *VcenterVStorageObjectManager) DetachTagFromVStorageObject(ctx *Context,
 func (m *VcenterVStorageObjectManager) ListVStorageObjectsAttachedToTag(ctx *Context, req *types.ListVStorageObjectsAttachedToTag) soap.HasFault {
 	body := new(methods.ListVStorageObjectsAttachedToTagBody)
 
-	t, err := ctx.Map.tagManager.GetTagByCategoryAndName(req.Category, req.Tag)
-	if err != nil {
-		body.Fault_ = Fault("", err)
-	} else {
-		if refs, err := ctx.Map.tagManager.AttachedObjects(t); err != nil {
-			body.Fault_ = Fault("", err)
-		} else {
-			body.Res = new(types.ListVStorageObjectsAttachedToTagResponse)
-			for _, ref := range refs {
-				body.Res.Returnval = append(body.Res.Returnval, types.ID{Id: ref.Value})
-			}
+	refs, err := ctx.Map.tagManager.AttachedObjects(types.VslmTagEntry{
+		ParentCategoryName: req.Category,
+		TagName:            req.Tag,
+	})
+
+	if err == nil {
+		body.Res = new(types.ListVStorageObjectsAttachedToTagResponse)
+		for _, ref := range refs {
+			body.Res.Returnval = append(body.Res.Returnval, types.ID{Id: ref.Value})
 		}
+	} else {
+		body.Fault_ = Fault("", err)
 	}
 
 	return body
@@ -451,22 +451,14 @@ func (m *VcenterVStorageObjectManager) ListTagsAttachedToVStorageObject(ctx *Con
 	body := new(methods.ListTagsAttachedToVStorageObjectBody)
 	ref := m.tagID(req.Id)
 
-	if tags, err := ctx.Map.tagManager.AttachedTags(ref); err != nil {
-		body.Fault_ = Fault("", err)
-	} else {
-		body.Res = &types.ListTagsAttachedToVStorageObjectResponse{}
-		for _, t := range tags {
-			c, n, err := ctx.Map.tagManager.GetTagCategoryAndName(t)
-			if err != nil {
-				body.Res = nil
-				body.Fault_ = Fault("", err)
-				return body
-			}
-			body.Res.Returnval = append(body.Res.Returnval, types.VslmTagEntry{
-				ParentCategoryName: c,
-				TagName:            n,
-			})
+	tags, err := ctx.Map.tagManager.AttachedTags(ref)
+
+	if err == nil {
+		body.Res = &types.ListTagsAttachedToVStorageObjectResponse{
+			Returnval: tags,
 		}
+	} else {
+		body.Fault_ = Fault("", err)
 	}
 
 	return body

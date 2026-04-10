@@ -67,7 +67,7 @@ func createSession(ctx *Context, name string, locale string) types.UserSession {
 			LastActiveTime:   now,
 			Locale:           locale,
 			MessageLocale:    locale,
-			ExtensionSession: false,
+			ExtensionSession: types.NewBool(false),
 		},
 		Registry: NewRegistry(),
 		Map:      ctx.Map,

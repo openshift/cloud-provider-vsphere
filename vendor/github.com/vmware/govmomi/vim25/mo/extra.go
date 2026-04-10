@@ -44,10 +44,6 @@ func (m ResourcePool) GetManagedEntity() ManagedEntity {
 	return m.ManagedEntity
 }
 
-func (m TransitGateway) GetManagedEntity() ManagedEntity {
-	return m.ManagedEntity
-}
-
 func (m VirtualMachine) GetManagedEntity() ManagedEntity {
 	return m.ManagedEntity
 }
