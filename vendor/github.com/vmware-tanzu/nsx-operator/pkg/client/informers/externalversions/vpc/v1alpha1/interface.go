@@ -25,6 +25,10 @@ type Interface interface {
 	StaticRoutes() StaticRouteInformer
 	// Subnets returns a SubnetInformer.
 	Subnets() SubnetInformer
+	// SubnetConnectionBindingMaps returns a SubnetConnectionBindingMapInformer.
+	SubnetConnectionBindingMaps() SubnetConnectionBindingMapInformer
+	// SubnetIPReservations returns a SubnetIPReservationInformer.
+	SubnetIPReservations() SubnetIPReservationInformer
 	// SubnetPorts returns a SubnetPortInformer.
 	SubnetPorts() SubnetPortInformer
 	// SubnetSets returns a SubnetSetInformer.
@@ -56,7 +60,7 @@ func (v *version) IPAddressAllocations() IPAddressAllocationInformer {
 
 // IPBlocksInfos returns a IPBlocksInfoInformer.
 func (v *version) IPBlocksInfos() IPBlocksInfoInformer {
-	return &iPBlocksInfoInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &iPBlocksInfoInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // NetworkInfos returns a NetworkInfoInformer.
@@ -77,6 +81,16 @@ func (v *version) StaticRoutes() StaticRouteInformer {
 // Subnets returns a SubnetInformer.
 func (v *version) Subnets() SubnetInformer {
 	return &subnetInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// SubnetConnectionBindingMaps returns a SubnetConnectionBindingMapInformer.
+func (v *version) SubnetConnectionBindingMaps() SubnetConnectionBindingMapInformer {
+	return &subnetConnectionBindingMapInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// SubnetIPReservations returns a SubnetIPReservationInformer.
+func (v *version) SubnetIPReservations() SubnetIPReservationInformer {
+	return &subnetIPReservationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // SubnetPorts returns a SubnetPortInformer.

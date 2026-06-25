@@ -156,76 +156,92 @@ func init() {
 }
 
 func init() {
-	Add("PodVMOverheadInfo", reflect.TypeOf((*PodVMOverheadInfo)(nil)).Elem())
+	minAPIVersionForType["HostRuntimeInfoPodVMInfo"] = "9.1.0.0"
+	Add("HostRuntimeInfoPodVMInfo", reflect.TypeOf((*HostRuntimeInfoPodVMInfo)(nil)).Elem())
 }
 
-type PodVMOverheadInfo struct {
-	CrxPageSharingSupported         bool  `xml:"crxPageSharingSupported"`
-	PodVMOverheadWithoutPageSharing int32 `xml:"podVMOverheadWithoutPageSharing"`
-	PodVMOverheadWithPageSharing    int32 `xml:"podVMOverheadWithPageSharing"`
+type HostRuntimeInfoPodVMInfo struct {
+	DynamicData
+
+	HasPageSharingPodVM bool              `xml:"hasPageSharingPodVM"`
+	PodVMOverheadInfo   PodVMOverheadInfo `xml:"podVMOverheadInfo"`
 }
 
-// Describes an action for the initial placement of a virtual machine in a cluster.
-//
-// This action is used by the cross cluster placement API when a virtual machine
-// needs to be placed across a set of given clusters. See `Folder.PlaceVmsXCluster`.
-// This action encapsulates details about the chosen cluster (via the resource pool
-// inside that cluster), the chosen host and the chosen datastores for the disks of
-// the virtual machine.
-type ClusterClusterInitialPlacementActionEx struct {
-	ClusterAction
+type UpdatePodVMPropertyRequestType struct {
+	This ManagedObjectReference `xml:"_this" json:"-"`
+	// Indicates the property within PodVMInfo to update
+	PropertyPath string `xml:"propertyPath" json:"propertyPath"`
+	// Value of propertyPath requested to be updated
+	Property AnyType `xml:"property,omitempty,typeattr" json:"property,omitempty"`
+}
 
-	// The host where the virtual machine should be initially placed.
-	//
-	// This field is optional because the primary use case of
-	// `Folder.PlaceVmsXCluster` is to select the best cluster for placing VMs. This
-	// `ClusterClusterInitialPlacementAction.targetHost` denotes the best host
-	// within the best cluster and it is only returned if the client asks for it,
-	// which is determined by `PlaceVmsXClusterSpec.hostRecommRequired`.
-	// If `PlaceVmsXClusterSpec.hostRecommRequired` is set to true, then the
-	// targetHost is returned with a valid value and if it is either set to false
-	// or left unset, then targetHost is also left unset. When this field is unset,
-	// then it means that the client did not ask for the target host within the
-	// recommended cluster. It does not mean that there is no recommended host
-	// for placing this VM in the recommended cluster.
-	//
-	// Refers instance of `HostSystem`.
-	TargetHost *ManagedObjectReference `xml:"targetHost,omitempty" json:"targetHost,omitempty"`
+func init() {
+	t["UpdatePodVMPropertyRequestType"] = reflect.TypeOf((*UpdatePodVMPropertyRequestType)(nil)).Elem()
+}
 
-	// The chosen resource pool for placing the virtual machine.
-	//
-	// This is non-optional because recommending the best cluster (by recommending the
-	// resource pool in the best cluster) is the primary use case for the
-	// `ClusterClusterInitialPlacementAction`.
-	//
-	// Refers instance of `ResourcePool`.
-	Pool ManagedObjectReference `xml:"pool" json:"pool"`
+type UpdatePodVMProperty UpdatePodVMPropertyRequestType
 
-	// The config spec of the virtual machine to be placed.
-	//
-	// The `Folder.PlaceVmsXCluster` method takes input of `VirtualMachineConfigSpec`
-	// from client and populates the backing for each virtual disk and the VM home
-	// path in it unless the input ConfigSpec already provides them. The existing
-	// settings in the input ConfigSpec are preserved and not overridden in the
-	// returned ConfigSpec in this action as well as the resulting
-	// `ClusterRecommendation`. This field is set based on whether the client needs
-	// `Folder.PlaceVmsXCluster` to recommend a backing datastore for the disks of
-	// the candidate VMs or not, which is specified via
-	// `PlaceVmsXClusterSpec.datastoreRecommRequired`. If
-	// `PlaceVmsXClusterSpec.datastoreRecommRequired` is set to true, then this
-	// `ClusterClusterInitialPlacementAction.configSpec` is also set with the
-	// backing of each disk populated. If
-	// `PlaceVmsXClusterSpec.datastoreRecommRequired` is either set to false or left
-	// unset, then this field is also left unset. When this field is left unset,
-	// then it means that the client did not ask to populate the backing datastore
-	// for the disks of the candidate VMs.
-	ConfigSpec *VirtualMachineConfigSpec `xml:"configSpec,omitempty" json:"configSpec,omitempty"`
+func init() {
+	minAPIVersionForType["UpdatePodVMProperty"] = "9.1.0.0"
+	t["UpdatePodVMProperty"] = reflect.TypeOf((*UpdatePodVMProperty)(nil)).Elem()
+}
 
-	AvailableNetworks []ManagedObjectReference `xml:"availableNetworks,omitempty" json:"availableNetworks,omitempty"`
+type UpdatePodVMPropertyResponse struct {
+}
+
+type BaseClusterClusterInitialPlacementAction interface {
+	GetClusterClusterInitialPlacementAction() *ClusterClusterInitialPlacementAction
+}
+
+func (a ClusterClusterInitialPlacementAction) GetClusterClusterInitialPlacementAction() *ClusterClusterInitialPlacementAction {
+	return &a
 }
 
 func init() {
 	minAPIVersionForType["ClusterClusterInitialPlacementActionEx"] = "9.1.0.0"
-	t["ClusterClusterInitialPlacementActionEx"] = reflect.TypeOf((*ClusterClusterInitialPlacementActionEx)(nil)).Elem()
-	Add("ClusterClusterInitialPlacementAction", reflect.TypeOf((*ClusterClusterInitialPlacementActionEx)(nil)).Elem())
+	t["ClusterClusterInitialPlacementAction"] = reflect.TypeOf((*ClusterClusterInitialPlacementAction)(nil)).Elem()
+	t["BaseClusterClusterInitialPlacementAction"] = reflect.TypeOf((*ClusterClusterInitialPlacementAction)(nil)).Elem()
+}
+
+// SharedDiskVmGroupInfoSharedDiskVmInfo is a row in SharedDiskVmGroupInfo (vim.vm.SharedDiskVmGroupInfo.SharedDiskVmInfo).
+type SharedDiskVmGroupInfoSharedDiskVmInfo struct {
+	DynamicData
+
+	DiskKey       int32           `xml:"diskKey" json:"diskKey"`
+	VirtualDiskId []VirtualDiskId `xml:"virtualDiskId,omitempty" json:"virtualDiskId,omitempty"`
+}
+
+func init() {
+	t["SharedDiskVmGroupInfoSharedDiskVmInfo"] = reflect.TypeOf((*SharedDiskVmGroupInfoSharedDiskVmInfo)(nil)).Elem()
+}
+
+// SharedDiskVmGroupInfo describes VMs sharing multi-writer or SCSI bus-sharing disks (vim.vm.SharedDiskVmGroupInfo).
+type SharedDiskVmGroupInfo struct {
+	DynamicData
+
+	SharedDiskVmInfo []SharedDiskVmGroupInfoSharedDiskVmInfo `xml:"sharedDiskVmInfo,omitempty" json:"sharedDiskVmInfo,omitempty"`
+}
+
+func init() {
+	t["SharedDiskVmGroupInfo"] = reflect.TypeOf((*SharedDiskVmGroupInfo)(nil)).Elem()
+}
+
+type FetchVmGroupForMultiwriterDisksRequestType struct {
+	This    ManagedObjectReference `xml:"_this" json:"-"`
+	DiskIds *ArrayOfInt            `xml:"diskIds,omitempty" json:"diskIds,omitempty"`
+}
+
+func init() {
+	t["FetchVmGroupForMultiwriterDisksRequestType"] = reflect.TypeOf((*FetchVmGroupForMultiwriterDisksRequestType)(nil)).Elem()
+}
+
+// FetchVmGroupForMultiwriterDisks is VirtualMachine#fetchVmGroupForMultiwriterDisks (MultiwriterDiskVMotion).
+type FetchVmGroupForMultiwriterDisks FetchVmGroupForMultiwriterDisksRequestType
+
+func init() {
+	t["FetchVmGroupForMultiwriterDisks"] = reflect.TypeOf((*FetchVmGroupForMultiwriterDisks)(nil)).Elem()
+}
+
+type FetchVmGroupForMultiwriterDisksResponse struct {
+	Returnval *SharedDiskVmGroupInfo `xml:"returnval,omitempty" json:"returnval,omitempty"`
 }

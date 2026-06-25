@@ -14,8 +14,8 @@ github.com/evanphx/json-patch/v5
 # github.com/go-task/slim-sprig/v3 v3.0.0
 ## explicit; go 1.20
 github.com/go-task/slim-sprig/v3
-# github.com/google/pprof v0.0.0-20250403155104-27863c87afa6
-## explicit; go 1.23
+# github.com/google/pprof v0.0.0-20260402051712-545e8a4df936
+## explicit; go 1.24.0
 github.com/google/pprof/profile
 # github.com/inconshreveable/mousetrap v1.1.0
 ## explicit; go 1.18
@@ -23,8 +23,8 @@ github.com/inconshreveable/mousetrap
 # github.com/mattn/go-isatty v0.0.20
 ## explicit; go 1.15
 github.com/mattn/go-isatty
-# github.com/onsi/ginkgo/v2 v2.27.3
-## explicit; go 1.23.0
+# github.com/onsi/ginkgo/v2 v2.31.0
+## explicit; go 1.25.0
 github.com/onsi/ginkgo/v2/config
 github.com/onsi/ginkgo/v2/formatter
 github.com/onsi/ginkgo/v2/ginkgo
@@ -58,17 +58,17 @@ github.com/spf13/pflag
 # go.yaml.in/yaml/v3 v3.0.4
 ## explicit; go 1.16
 go.yaml.in/yaml/v3
-# golang.org/x/mod v0.27.0
-## explicit; go 1.23.0
+# golang.org/x/mod v0.35.0
+## explicit; go 1.25.0
 golang.org/x/mod/semver
-# golang.org/x/sync v0.16.0
-## explicit; go 1.23.0
+# golang.org/x/sync v0.20.0
+## explicit; go 1.25.0
 golang.org/x/sync/errgroup
-# golang.org/x/sys v0.35.0
-## explicit; go 1.23.0
+# golang.org/x/sys v0.43.0
+## explicit; go 1.25.0
 golang.org/x/sys/unix
-# golang.org/x/tools v0.36.0
-## explicit; go 1.23.0
+# golang.org/x/tools v0.44.0
+## explicit; go 1.25.0
 golang.org/x/tools/cover
 golang.org/x/tools/go/ast/edge
 golang.org/x/tools/go/ast/inspector
@@ -89,7 +89,7 @@ golang.org/x/tools/internal/stdlib
 golang.org/x/tools/internal/typeparams
 golang.org/x/tools/internal/typesinternal
 golang.org/x/tools/internal/versions
-# sigs.k8s.io/kind v0.30.0
+# sigs.k8s.io/kind v0.32.0
 ## explicit; go 1.17
 sigs.k8s.io/kind
 sigs.k8s.io/kind/cmd/kind/app

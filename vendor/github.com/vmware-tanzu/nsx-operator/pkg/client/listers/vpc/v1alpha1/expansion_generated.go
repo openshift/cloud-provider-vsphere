@@ -25,10 +25,6 @@ type IPAddressAllocationNamespaceListerExpansion interface{}
 // IPBlocksInfoLister.
 type IPBlocksInfoListerExpansion interface{}
 
-// IPBlocksInfoNamespaceListerExpansion allows custom methods to be added to
-// IPBlocksInfoNamespaceLister.
-type IPBlocksInfoNamespaceListerExpansion interface{}
-
 // NetworkInfoListerExpansion allows custom methods to be added to
 // NetworkInfoLister.
 type NetworkInfoListerExpansion interface{}
@@ -60,6 +56,22 @@ type SubnetListerExpansion interface{}
 // SubnetNamespaceListerExpansion allows custom methods to be added to
 // SubnetNamespaceLister.
 type SubnetNamespaceListerExpansion interface{}
+
+// SubnetConnectionBindingMapListerExpansion allows custom methods to be added to
+// SubnetConnectionBindingMapLister.
+type SubnetConnectionBindingMapListerExpansion interface{}
+
+// SubnetConnectionBindingMapNamespaceListerExpansion allows custom methods to be added to
+// SubnetConnectionBindingMapNamespaceLister.
+type SubnetConnectionBindingMapNamespaceListerExpansion interface{}
+
+// SubnetIPReservationListerExpansion allows custom methods to be added to
+// SubnetIPReservationLister.
+type SubnetIPReservationListerExpansion interface{}
+
+// SubnetIPReservationNamespaceListerExpansion allows custom methods to be added to
+// SubnetIPReservationNamespaceLister.
+type SubnetIPReservationNamespaceListerExpansion interface{}
 
 // SubnetPortListerExpansion allows custom methods to be added to
 // SubnetPortLister.

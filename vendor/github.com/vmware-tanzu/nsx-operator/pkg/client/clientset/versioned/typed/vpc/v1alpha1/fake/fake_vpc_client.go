@@ -23,8 +23,8 @@ func (c *FakeCrdV1alpha1) IPAddressAllocations(namespace string) v1alpha1.IPAddr
 	return &FakeIPAddressAllocations{c, namespace}
 }
 
-func (c *FakeCrdV1alpha1) IPBlocksInfos(namespace string) v1alpha1.IPBlocksInfoInterface {
-	return &FakeIPBlocksInfos{c, namespace}
+func (c *FakeCrdV1alpha1) IPBlocksInfos() v1alpha1.IPBlocksInfoInterface {
+	return &FakeIPBlocksInfos{c}
 }
 
 func (c *FakeCrdV1alpha1) NetworkInfos(namespace string) v1alpha1.NetworkInfoInterface {
@@ -41,6 +41,14 @@ func (c *FakeCrdV1alpha1) StaticRoutes(namespace string) v1alpha1.StaticRouteInt
 
 func (c *FakeCrdV1alpha1) Subnets(namespace string) v1alpha1.SubnetInterface {
 	return &FakeSubnets{c, namespace}
+}
+
+func (c *FakeCrdV1alpha1) SubnetConnectionBindingMaps(namespace string) v1alpha1.SubnetConnectionBindingMapInterface {
+	return &FakeSubnetConnectionBindingMaps{c, namespace}
+}
+
+func (c *FakeCrdV1alpha1) SubnetIPReservations(namespace string) v1alpha1.SubnetIPReservationInterface {
+	return &FakeSubnetIPReservations{c, namespace}
 }
 
 func (c *FakeCrdV1alpha1) SubnetPorts(namespace string) v1alpha1.SubnetPortInterface {

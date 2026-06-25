@@ -22,6 +22,8 @@ type CrdV1alpha1Interface interface {
 	SecurityPoliciesGetter
 	StaticRoutesGetter
 	SubnetsGetter
+	SubnetConnectionBindingMapsGetter
+	SubnetIPReservationsGetter
 	SubnetPortsGetter
 	SubnetSetsGetter
 	VPCNetworkConfigurationsGetter
@@ -40,8 +42,8 @@ func (c *CrdV1alpha1Client) IPAddressAllocations(namespace string) IPAddressAllo
 	return newIPAddressAllocations(c, namespace)
 }
 
-func (c *CrdV1alpha1Client) IPBlocksInfos(namespace string) IPBlocksInfoInterface {
-	return newIPBlocksInfos(c, namespace)
+func (c *CrdV1alpha1Client) IPBlocksInfos() IPBlocksInfoInterface {
+	return newIPBlocksInfos(c)
 }
 
 func (c *CrdV1alpha1Client) NetworkInfos(namespace string) NetworkInfoInterface {
@@ -58,6 +60,14 @@ func (c *CrdV1alpha1Client) StaticRoutes(namespace string) StaticRouteInterface 
 
 func (c *CrdV1alpha1Client) Subnets(namespace string) SubnetInterface {
 	return newSubnets(c, namespace)
+}
+
+func (c *CrdV1alpha1Client) SubnetConnectionBindingMaps(namespace string) SubnetConnectionBindingMapInterface {
+	return newSubnetConnectionBindingMaps(c, namespace)
+}
+
+func (c *CrdV1alpha1Client) SubnetIPReservations(namespace string) SubnetIPReservationInterface {
+	return newSubnetIPReservations(c, namespace)
 }
 
 func (c *CrdV1alpha1Client) SubnetPorts(namespace string) SubnetPortInterface {

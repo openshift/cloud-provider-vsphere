@@ -8,9 +8,13 @@ import (
 type ConditionType string
 
 const (
-	Ready                  ConditionType = "Ready"
-	GatewayConnectionReady ConditionType = "GatewayConnectionReady"
-	AutoSnatEnabled        ConditionType = "AutoSnatEnabled"
+	Ready                      ConditionType = "Ready"
+	GatewayConnectionReady     ConditionType = "GatewayConnectionReady"
+	ServiceClusterReady        ConditionType = "ServiceClusterReady"
+	AutoSnatEnabled            ConditionType = "AutoSnatEnabled"
+	ExternalIPBlocksConfigured ConditionType = "ExternalIPBlocksConfigured"
+	DeleteFailure              ConditionType = "DeletionFailed"
+	UpdateFailure              ConditionType = "UpdateFailed"
 )
 
 // Condition defines condition of custom resource.
