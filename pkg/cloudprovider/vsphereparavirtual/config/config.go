@@ -43,8 +43,6 @@ const (
 	SupervisorClusterAccessNamespaceFile = "namespace"
 	// SupervisorAPIServerPortEnv reads supervisor service endpoint info from env
 	SupervisorAPIServerPortEnv string = "SUPERVISOR_APISERVER_PORT"
-	// SupervisorAPIServerEndpointIPEnv reads supervisor API server endpoint IP from env
-	SupervisorAPIServerEndpointIPEnv string = "SUPERVISOR_APISERVER_ENDPOINT_IP"
 	// SupervisorServiceAccountNameEnv reads supervisor service account name from env
 	SupervisorServiceAccountNameEnv string = "SUPERVISOR_CLUSTER_SERVICEACCOUNT_SECRET_NAME"
 	// SupervisorAPIServerFQDN reads supervisor service API server's fully qualified domain name from env
@@ -53,8 +51,6 @@ const (
 
 // SupervisorEndpoint is the supervisor cluster endpoint
 type SupervisorEndpoint struct {
-	// supervisor cluster proxy service hostname
-	Endpoint string
 	// supervisor cluster proxy service  port
 	Port string
 }
@@ -74,12 +70,6 @@ func ReadOwnerRef(path string) (*metav1.OwnerReference, error) {
 }
 
 func readSupervisorConfig() (*SupervisorEndpoint, error) {
-	remoteVip := os.Getenv(SupervisorAPIServerEndpointIPEnv)
-	if remoteVip == "" {
-		// call os.Exit(1) for the pod to restart
-		klog.Fatalf("%s is missing in env vars", SupervisorAPIServerEndpointIPEnv)
-	}
-
 	remotePort := os.Getenv(SupervisorAPIServerPortEnv)
 
 	if remotePort == "" {
@@ -88,10 +78,9 @@ func readSupervisorConfig() (*SupervisorEndpoint, error) {
 
 	}
 
-	klog.V(6).Infof("Configured with remote apiserver %s:%s", remoteVip, remotePort)
+	klog.V(6).Infof("Configured with remote apiserver port %s", remotePort)
 	return &SupervisorEndpoint{
-		Endpoint: remoteVip,
-		Port:     remotePort,
+		Port: remotePort,
 	}, nil
 
 }
@@ -116,9 +105,11 @@ func GetRestConfig(svConfigPath string) (*rest.Config, error) {
 	}
 
 	tokenFile := svConfigPath + "/" + SupervisorClusterAccessTokenFile
-	token, err := os.ReadFile(tokenFile)
-
-	if err != nil {
+	// Validate the token is readable at startup so we fail fast with a clear
+	// error. The content is intentionally discarded: we hand the path to
+	// client-go via BearerTokenFile so it reloads the (potentially short-lived,
+	// periodically refreshed) token from disk without requiring a pod restart.
+	if _, err := os.ReadFile(tokenFile); err != nil {
 		klog.Errorf("Failed to read token from %s: %v", tokenFile, err)
 		return nil, err
 	}
@@ -136,7 +127,7 @@ func GetRestConfig(svConfigPath string) (*rest.Config, error) {
 		TLSClientConfig: rest.TLSClientConfig{
 			CAData: rootCA,
 		},
-		BearerToken: string(token),
+		BearerTokenFile: tokenFile,
 	}, nil
 }
 

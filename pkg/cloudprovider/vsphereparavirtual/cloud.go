@@ -22,13 +22,13 @@ import (
 	"fmt"
 	"io"
 
+	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 
-	cloudprovider "k8s.io/cloud-provider"
-
 	"k8s.io/cloud-provider-vsphere/pkg/cloudprovider/vsphereparavirtual/config"
 	"k8s.io/cloud-provider-vsphere/pkg/cloudprovider/vsphereparavirtual/controllers/routablepod"
+	"k8s.io/cloud-provider-vsphere/pkg/cloudprovider/vsphereparavirtual/vmoperator/factory"
 	"k8s.io/cloud-provider-vsphere/pkg/cloudprovider/vsphereparavirtual/vmservice"
 	cpcfg "k8s.io/cloud-provider-vsphere/pkg/common/config"
 	k8s "k8s.io/cloud-provider-vsphere/pkg/common/kubernetes"
@@ -66,6 +66,15 @@ var (
 
 	// serviceAnnotationPropagationEnabled if set to true, will propagate the service annotation to resource in supervisor cluster.
 	serviceAnnotationPropagationEnabled bool
+
+	// vmopAPIVersion is the VM Operator API version to use when communicating
+	// with the Supervisor cluster. Defaults to v1alpha2 for backward compatibility.
+	// Controlled via the --vm-operator-api-version flag.
+	vmopAPIVersion string
+
+	// clusterIPFamily is the raw --cluster-ip-family flag; Initialize resolves it
+	// with ParseClusterIPFamily to one of: ipv4, ipv6, ipv4ipv6, or ipv6ipv4.
+	clusterIPFamily string
 )
 
 func init() {
@@ -94,9 +103,15 @@ func init() {
 	flag.BoolVar(&vpcModeEnabled, "enable-vpc-mode", false, "If true, routable pod controller will start with VPC mode. It is useful only when route controller is enabled in vsphereparavirtual mode")
 	flag.StringVar(&podIPPoolType, "pod-ip-pool-type", "", "Specify if Pod IP address is Public or Private routable in VPC network. Valid values are Public and Private")
 	flag.BoolVar(&serviceAnnotationPropagationEnabled, "enable-service-annotation-propagation", false, "If true, will propagate the service annotation to resource in supervisor cluster.")
+	flag.StringVar(&vmopAPIVersion, "vm-operator-api-version", factory.V1alpha2, "the API version to use when communicating with VM Operator in supervisor mode. Valid values are: "+factory.V1alpha2+", "+factory.V1alpha5+", "+factory.V1alpha6)
+	flag.StringVar(&clusterIPFamily, "cluster-ip-family", "ipv4",
+		"Cluster IP family for NodeInternalIP ordering and Routable Pods. "+
+			"Valid values (case-insensitive): ipv4 (default), ipv6, ipv4ipv6, ipv6ipv4. "+
+			"Non-ipv4 values require --vm-operator-api-version >= v1alpha6. "+
+			"IPv6 or dual-stack with the route controller additionally requires --enable-vpc-mode=true.")
 }
 
-// Creates new Controller node interface and returns
+// newVSphereParavirtual creates a new VSphereParavirtual cloud provider from the given config.
 func newVSphereParavirtual(cfg *cpcfg.Config) (*VSphereParavirtual, error) {
 	cp := &VSphereParavirtual{
 		cfg: cfg,
@@ -138,19 +153,45 @@ func (cp *VSphereParavirtual) Initialize(clientBuilder cloudprovider.ControllerC
 		klog.Fatalf("Failed to get cluster namespace: %v", err)
 	}
 
+	resolvedClusterIPFamily, err := ParseClusterIPFamily(clusterIPFamily)
+	if err != nil {
+		klog.Fatalf("Invalid --cluster-ip-family: %v", err)
+	}
+	if err := validateIPFamilyConfig(resolvedClusterIPFamily, vmopAPIVersion); err != nil {
+		klog.Fatalf("Invalid flag combination: %v", err)
+	}
+
+	ipv6Enabled := resolvedClusterIPFamily == ClusterIPFamilyIPv6 ||
+		resolvedClusterIPFamily == ClusterIPFamilyIPv4IPv6 ||
+		resolvedClusterIPFamily == ClusterIPFamilyIPv6IPv4
+
+	// IPv6 (including dual stack) Routable Pods requires VPC mode; T1 networking does not
+	// support per-family IPAddressAllocation or StaticRoute CRs.
+	// This guard is scoped to RouteEnabled: IPv6 Node IP Report and Load Balancer do not
+	// depend on VPC mode and must continue to work when route controllers are disabled.
+	if RouteEnabled && ipv6Enabled && !vpcModeEnabled {
+		klog.Fatalf("--cluster-ip-family=%s with route controller enabled requires --enable-vpc-mode=true: IPv6 and dual stack routable pods are not supported on the legacy T1 networking mode", resolvedClusterIPFamily)
+	}
+	klog.Infof("Using VM Operator API version: %s", vmopAPIVersion)
+	vmopClient, err := factory.NewAdapter(vmopAPIVersion, kcfg)
+	if err != nil {
+		klog.Fatalf("Failed to create VM Operator adapter for version %s: %v", vmopAPIVersion, err)
+	}
+
 	routes, err := NewRoutes(clusterNS, kcfg, *cp.ownerReference, vpcModeEnabled, cp.informMgr.GetNodeLister())
 	if err != nil {
 		klog.Errorf("Failed to init Route: %v", err)
 	}
 	cp.routes = routes
 
-	lb, err := NewLoadBalancer(clusterNS, kcfg, cp.ownerReference, serviceAnnotationPropagationEnabled)
+	lb, err := NewLoadBalancer(clusterNS, vmopClient, cp.ownerReference, serviceAnnotationPropagationEnabled)
 	if err != nil {
 		klog.Errorf("Failed to init LoadBalancer: %v", err)
 	}
 	cp.loadBalancer = lb
 
-	instances, err := NewInstances(clusterNS, kcfg)
+	klog.Infof("Using cluster IP family: %s", resolvedClusterIPFamily)
+	instances, err := NewInstances(clusterNS, vmopClient, resolvedClusterIPFamily)
 	if err != nil {
 		klog.Errorf("Failed to init Instance: %v", err)
 	}
@@ -164,7 +205,7 @@ func (cp *VSphereParavirtual) Initialize(clientBuilder cloudprovider.ControllerC
 		}
 	}
 
-	zones, err := NewZones(clusterNS, kcfg)
+	zones, err := NewZones(clusterNS, vmopClient)
 	if err != nil {
 		klog.Errorf("Failed to init Zones: %v", err)
 	}
@@ -189,8 +230,7 @@ func (cp *VSphereParavirtual) Instances() (cloudprovider.Instances, bool) {
 }
 
 // InstancesV2 returns an implementation of cloudprovider.InstancesV2.
-//
-//	TODO: implement this for v1.20
+// Not implemented; the CPI uses the v1 Instances interface instead.
 func (cp *VSphereParavirtual) InstancesV2() (cloudprovider.InstancesV2, bool) {
 	return nil, false
 }
