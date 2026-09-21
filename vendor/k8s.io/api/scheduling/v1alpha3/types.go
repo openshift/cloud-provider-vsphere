@@ -175,7 +175,7 @@ type PodGroupTemplate struct {
 	// PodGroup's claim exactly. The claim must have the same name and refer to
 	// the same ResourceClaim or ResourceClaimTemplate.
 	//
-	// This is an alpha-level field and requires that the
+	// This is a beta-level field and requires that the
 	// DRAWorkloadResourceClaims feature gate is enabled.
 	//
 	// This field is immutable.
@@ -251,6 +251,23 @@ type CompositePodGroupTemplate struct {
 	// +required
 	SchedulingPolicy CompositePodGroupSchedulingPolicy `json:"schedulingPolicy" protobuf:"bytes,2,opt,name=schedulingPolicy"`
 
+	// schedulingConstraints defines optional scheduling constraints (e.g. topology) for this CompositePodGroupTemplate.
+	// This field is immutable.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:immutable
+	SchedulingConstraints *CompositePodGroupSchedulingConstraints `json:"schedulingConstraints,omitempty" protobuf:"bytes,3,opt,name=schedulingConstraints"`
+
+	// disruptionMode defines the mode in which a given CompositePodGroup can be disrupted.
+	// One of Single, All.
+	// This field is immutable.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:immutable
+	DisruptionMode *CompositeDisruptionMode `json:"disruptionMode,omitempty" protobuf:"bytes,4,opt,name=disruptionMode"`
+
 	// priorityClassName indicates the priority that should be considered when scheduling
 	// a composite pod group created from this template. If no priority class is specified,
 	// admission control can set this to the global default priority class if it exists.
@@ -262,7 +279,7 @@ type CompositePodGroupTemplate struct {
 	// +k8s:optional
 	// +k8s:format=k8s-long-name
 	// +k8s:immutable
-	PriorityClassName string `json:"priorityClassName,omitempty" protobuf:"bytes,3,opt,name=priorityClassName"`
+	PriorityClassName string `json:"priorityClassName,omitempty" protobuf:"bytes,5,opt,name=priorityClassName"`
 
 	// priority is the value of priority of composite pod groups created from this template.
 	// Various system components use this field to find the priority of the composite pod group.
@@ -275,7 +292,19 @@ type CompositePodGroupTemplate struct {
 	// +k8s:optional
 	// +k8s:maximum=1000000000 # HighestUserDefinablePriority
 	// +k8s:immutable
-	Priority *int32 `json:"priority,omitempty" protobuf:"varint,4,opt,name=priority"`
+	Priority *int32 `json:"priority,omitempty" protobuf:"varint,6,opt,name=priority"`
+
+	// preemptionPolicy is the Policy for preempting pods/podgroups with lower priority.
+	// One of Never, PreemptLowerPriority.
+	// This field is immutable.
+	// This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.
+	//
+	// +featureGate=PodGroupPreemptionPolicy
+	// +optional
+	// +k8s:immutable
+	// +k8s:ifDisabled("PodGroupPreemptionPolicy")=+k8s:forbidden
+	// +k8s:ifEnabled("PodGroupPreemptionPolicy")=+k8s:optional
+	PreemptionPolicy *PreemptionPolicy `json:"preemptionPolicy,omitempty" protobuf:"bytes,7,opt,name=preemptionPolicy"`
 
 	// podGroupTemplates is the list of templates for children PodGroups.
 	// The maximum number of templates is 8. At least one entry in CompositePodGroupTemplates
@@ -290,7 +319,7 @@ type CompositePodGroupTemplate struct {
 	// +k8s:maxItems=8
 	// +k8s:update=NoAddItem
 	// +k8s:update=NoRemoveItem
-	PodGroupTemplates []PodGroupTemplate `json:"podGroupTemplates,omitempty" protobuf:"bytes,5,rep,name=podGroupTemplates"`
+	PodGroupTemplates []PodGroupTemplate `json:"podGroupTemplates,omitempty" protobuf:"bytes,8,rep,name=podGroupTemplates"`
 
 	// compositePodGroupTemplates is the list of templates for children CompositePodGroups.
 	// The maximum number of templates is 8. At least one entry in CompositePodGroupTemplates
@@ -305,7 +334,7 @@ type CompositePodGroupTemplate struct {
 	// +k8s:maxItems=8
 	// +k8s:update=NoAddItem
 	// +k8s:update=NoRemoveItem
-	CompositePodGroupTemplates []CompositePodGroupTemplate `json:"compositePodGroupTemplates,omitempty" protobuf:"bytes,6,rep,name=compositePodGroupTemplates"`
+	CompositePodGroupTemplates []CompositePodGroupTemplate `json:"compositePodGroupTemplates,omitempty" protobuf:"bytes,9,rep,name=compositePodGroupTemplates"`
 }
 
 // PodGroupSchedulingPolicy defines the scheduling configuration for a PodGroup.
@@ -517,7 +546,7 @@ type PodGroupSpec struct {
 	// +k8s:ifEnabled(CompositePodGroup)=+k8s:optional
 	// +k8s:immutable
 	// +k8s:format=k8s-long-name
-	// +k8s:dependentRequired("workloadRef")
+	// +k8s:alpha(since: "1.37")=+k8s:dependentRequired("workloadRef")
 	ParentCompositePodGroupName *string `json:"parentCompositePodGroupName,omitempty" protobuf:"bytes,1,opt,name=parentCompositePodGroupName"`
 
 	// workloadRef references an optional PodGroup template within the Workload
@@ -553,7 +582,7 @@ type PodGroupSpec struct {
 	// PodGroup's claim exactly. The claim must have the same name and refer to
 	// the same ResourceClaim or ResourceClaimTemplate.
 	//
-	// This is an alpha-level field and requires that the
+	// This is a beta-level field and requires that the
 	// DRAWorkloadResourceClaims feature gate is enabled.
 	//
 	// This field is immutable.
@@ -761,6 +790,382 @@ type TopologyConstraint struct {
 	Key string `json:"key" protobuf:"bytes,1,opt,name=key"`
 }
 
+// WorkloadPodGroupSchedulingPolicy defines the scheduling policy for a
+// group of pods managed by a workload controller.
+// Exactly one policy must be set.
+//
+// ---
+//
+// This is a reusable building block meant to be embedded in a controller's own
+// API, next to its other scheduling fields (for example, in a Job's
+// spec.scheduling). It's recommended to block changing the policy
+// after creation, while still allowing gang.minCount to change. DV cannot
+// express that only gang.minCount is mutable while the basic/gang variant is
+// frozen, so the embedder must enforce variant immutability with hand-written
+// validation. For example,
+//
+//	type JobSchedulingConfiguration struct {
+//		// SchedulingPolicy defines the scheduling policy for this Job.
+//		// Exactly one of Basic or Gang must be set.
+//		// This field is immutable after creation: the policy may not be added or
+//		// removed. The policy variant (basic/gang) is frozen by the controller's
+//		// hand-written validation; only schedulingPolicy.gang.minCount may be changed.
+//		// +optional
+//		// +k8s:optional
+//		// +k8s:update=NoSet
+//		// +k8s:update=NoUnset
+//		SchedulingPolicy *schedulingv1alpha3.WorkloadPodGroupSchedulingPolicy `json:"schedulingPolicy,omitempty" protobuf:"bytes,N,opt,name=schedulingPolicy"`
+//
+//		// other scheduling fields
+//	}
+//
+// +union
+type WorkloadPodGroupSchedulingPolicy struct {
+	// basic specifies that standard, pod-by-pod Kubernetes scheduling
+	// behavior should be used.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	Basic *WorkloadPodGroupBasicSchedulingPolicy `json:"basic,omitempty" protobuf:"bytes,1,opt,name=basic"`
+
+	// gang specifies all-or-nothing scheduling semantics.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	Gang *WorkloadPodGroupGangSchedulingPolicy `json:"gang,omitempty" protobuf:"bytes,2,opt,name=gang"`
+}
+
+// WorkloadPodGroupBasicSchedulingPolicy indicates standard Kubernetes
+// scheduling behavior.
+type WorkloadPodGroupBasicSchedulingPolicy struct {
+	// Intentionally empty for now.
+}
+
+// WorkloadPodGroupGangSchedulingPolicy defines the parameters for gang
+// (all-or-nothing) scheduling.
+type WorkloadPodGroupGangSchedulingPolicy struct {
+	// minCount is the minimum number of pods that must be scheduled
+	// at the same time for the scheduler to admit the entire group.
+	// This field is optional. If it is not specified, the controller
+	// should inject a context-specific sane default (e.g.,
+	// parallelism for a Job).
+	// If set, it must be a positive integer.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:minimum=1
+	MinCount *int32 `json:"minCount,omitempty" protobuf:"varint,1,opt,name=minCount"`
+}
+
+// WorkloadPodGroupSchedulingConstraints defines leaf-level scheduling
+// constraints, such as topology.
+//
+// ---
+//
+// This is a reusable building block meant to be embedded in a controller's own
+// API, next to its other scheduling fields (for example, in a Job's
+// spec.scheduling). It's recommended to freeze the field after creation
+// (+k8s:immutable), since constraints are immutable in the compiled Workload.
+// For example,
+//
+//	type JobSchedulingConfiguration struct {
+//		// SchedulingConstraints defines scheduling constraints (e.g. topology)
+//		// for the Job's pods.
+//		// This field is immutable after creation.
+//		// +optional
+//		// +k8s:optional
+//		// +k8s:immutable
+//		SchedulingConstraints *schedulingv1alpha3.WorkloadPodGroupSchedulingConstraints `json:"schedulingConstraints,omitempty" protobuf:"bytes,N,opt,name=schedulingConstraints"`
+//
+//		// other scheduling fields
+//	}
+type WorkloadPodGroupSchedulingConstraints struct {
+	// topology specifies desired topological placements for all pods
+	// within the pod group.
+	// If unset, no topology placement is requested.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:maxItems=1
+	// +listType=atomic
+	// +k8s:listType=atomic
+	Topology []TopologyConstraint `json:"topology,omitempty" protobuf:"bytes,1,rep,name=topology"`
+}
+
+// WorkloadPodGroupResourceClaim references a dynamic resource claim
+// that is shared across pods in the group.
+//
+// ---
+//
+// This is a reusable building block meant to be embedded in a controller's own
+// API as a list, next to its other scheduling fields (for example, in a Job's
+// spec.scheduling). It's recommended to freeze the whole list after creation
+// (+k8s:immutable), since the list is immutable in the compiled Workload. For
+// example,
+//
+//	type JobSchedulingConfiguration struct {
+//		// ResourceClaims lists the ResourceClaims shared among the group's pods.
+//		// At most 4 claims may be set, matching the limit on the resulting PodGroup.
+//		// This list is immutable after creation: entries may neither be added,
+//		// removed, nor modified.
+//		// +optional
+//		// +patchMergeKey=name
+//		// +patchStrategy=merge
+//		// +listType=map
+//		// +listMapKey=name
+//		// +k8s:optional
+//		// +k8s:listType=map
+//		// +k8s:listMapKey=name
+//		// +k8s:maxItems=4
+//		// +k8s:immutable
+//		ResourceClaims []schedulingv1alpha3.WorkloadPodGroupResourceClaim `json:"resourceClaims,omitempty" protobuf:"bytes,N,rep,name=resourceClaims"`
+//
+//		// other scheduling fields
+//	}
+type WorkloadPodGroupResourceClaim struct {
+	// name uniquely identifies this resource claim inside the group.
+	// This field is required. It must be a DNS_LABEL.
+	//
+	// +required
+	// +k8s:required
+	// +k8s:format=k8s-short-name
+	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
+
+	// resourceClaimName is the name of a ResourceClaim object in the same
+	// namespace.
+	// This field is optional. If it is not specified, no resource claim
+	// is used. If set, it must be a DNS subdomain.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	// +k8s:format=k8s-long-name
+	ResourceClaimName *string `json:"resourceClaimName,omitempty" protobuf:"bytes,2,opt,name=resourceClaimName"`
+
+	// resourceClaimTemplateName is the name of a ResourceClaimTemplate
+	// object in the same namespace.
+	// This field is optional. If it is not specified, no resource claim
+	// template is used. If set, it must be a DNS subdomain.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	// +k8s:format=k8s-long-name
+	ResourceClaimTemplateName *string `json:"resourceClaimTemplateName,omitempty" protobuf:"bytes,3,opt,name=resourceClaimTemplateName"`
+}
+
+// WorkloadPodGroupDisruptionMode defines how individual pods within a
+// group can be disrupted. Exactly one mode must be set.
+//
+// ---
+//
+// This is a reusable building block meant to be embedded in a controller's own
+// API, next to its other scheduling fields (for example, in a Job's
+// spec.scheduling). It's recommended to freeze the field after creation
+// (+k8s:immutable), since the selected mode is immutable in the compiled
+// Workload. For example,
+//
+//	type JobSchedulingConfiguration struct {
+//		// DisruptionMode defines the mode in which the Job's pods can be disrupted.
+//		// One of Single, All.
+//		// This field is immutable after creation: it may not be added or removed,
+//		// and the selected mode may not be changed.
+//		// +optional
+//		// +k8s:optional
+//		// +k8s:immutable
+//		DisruptionMode *schedulingv1alpha3.WorkloadPodGroupDisruptionMode `json:"disruptionMode,omitempty" protobuf:"bytes,N,opt,name=disruptionMode"`
+//
+//		// other scheduling fields
+//	}
+//
+// +union
+type WorkloadPodGroupDisruptionMode struct {
+	// single specifies that pods can be disrupted independently from each other.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	Single *WorkloadPodGroupSingleDisruptionMode `json:"single,omitempty" protobuf:"bytes,1,opt,name=single"`
+
+	// all specifies that all pods in the group must be disrupted together.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	All *WorkloadPodGroupAllDisruptionMode `json:"all,omitempty" protobuf:"bytes,2,opt,name=all"`
+}
+
+// WorkloadPodGroupSingleDisruptionMode indicates that individual pods
+// can be disrupted independently.
+type WorkloadPodGroupSingleDisruptionMode struct {
+	// Intentionally empty for now.
+}
+
+// WorkloadPodGroupAllDisruptionMode indicates that all pods in the
+// group must be disrupted together.
+type WorkloadPodGroupAllDisruptionMode struct {
+	// Intentionally empty for now.
+}
+
+// WorkloadCompositePodGroupSchedulingPolicy defines the scheduling policy for a
+// CompositePodGroup (a group of groups) managed by a workload controller.
+// Exactly one policy must be set.
+//
+// ---
+//
+// This is a reusable building block meant to be embedded in a composite
+// controller's own API, next to its other scheduling fields. It is the
+// group-of-groups analogue of WorkloadPodGroupSchedulingPolicy. The composite
+// scheduling policy is immutable, so it's recommended to freeze the whole
+// field after creation (+k8s:immutable). For example,
+//
+//	type JobSetSchedulingConfiguration struct {
+//		// SchedulingPolicy defines the scheduling policy for this JobSet.
+//		// Exactly one of Basic or Gang must be set.
+//		// This field is immutable after creation.
+//		// +optional
+//		// +k8s:optional
+//		// +k8s:immutable
+//		SchedulingPolicy *schedulingv1alpha3.WorkloadCompositePodGroupSchedulingPolicy `json:"schedulingPolicy,omitempty" protobuf:"bytes,N,opt,name=schedulingPolicy"`
+//
+//		// other scheduling fields
+//	}
+//
+// +union
+type WorkloadCompositePodGroupSchedulingPolicy struct {
+	// basic specifies that the child groups of this composite group should be
+	// scheduled independently.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	Basic *WorkloadCompositePodGroupBasicSchedulingPolicy `json:"basic,omitempty" protobuf:"bytes,1,opt,name=basic"`
+
+	// gang specifies that the child groups of this composite group should be
+	// scheduled using all-or-nothing semantics.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	Gang *WorkloadCompositePodGroupGangSchedulingPolicy `json:"gang,omitempty" protobuf:"bytes,2,opt,name=gang"`
+}
+
+// WorkloadCompositePodGroupBasicSchedulingPolicy indicates that the child groups
+// of a composite group should be scheduled independently.
+type WorkloadCompositePodGroupBasicSchedulingPolicy struct {
+	// Intentionally empty for now.
+}
+
+// WorkloadCompositePodGroupGangSchedulingPolicy defines the parameters for gang
+// scheduling of a composite group's child groups.
+type WorkloadCompositePodGroupGangSchedulingPolicy struct {
+	// minGroupCount is the minimum number of child groups that must be
+	// schedulable at the same time for the scheduler to admit the entire
+	// composite group.
+	// This field is optional. If it is not specified, the controller
+	// should inject a context-specific sane default (e.g., the number of
+	// child groups).
+	// If set, it must be a positive integer.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:minimum=1
+	MinGroupCount *int32 `json:"minGroupCount,omitempty" protobuf:"varint,1,opt,name=minGroupCount"`
+}
+
+// WorkloadCompositePodGroupSchedulingConstraints defines composite-level
+// scheduling constraints, such as topology, for a CompositePodGroup (a group of
+// groups) managed by a workload controller.
+//
+// ---
+//
+// This is a reusable building block meant to be embedded in a composite
+// controller's own API, next to its other scheduling fields. It is the
+// group-of-groups analogue of WorkloadPodGroupSchedulingConstraints. It's
+// recommended to freeze the field after creation (+k8s:immutable), since
+// constraints are immutable in the compiled Workload. For example,
+//
+//	type JobSetSchedulingConfiguration struct {
+//		// SchedulingConstraints defines scheduling constraints (e.g. topology)
+//		// for this JobSet.
+//		// This field is immutable after creation.
+//		// +optional
+//		// +k8s:optional
+//		// +k8s:immutable
+//		SchedulingConstraints *schedulingv1alpha3.WorkloadCompositePodGroupSchedulingConstraints `json:"schedulingConstraints,omitempty" protobuf:"bytes,N,opt,name=schedulingConstraints"`
+//
+//		// other scheduling fields
+//	}
+type WorkloadCompositePodGroupSchedulingConstraints struct {
+	// topology specifies desired topological placements for all child groups
+	// within the composite group.
+	// If unset, no topology placement is requested.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:maxItems=1
+	// +listType=atomic
+	// +k8s:listType=atomic
+	Topology []TopologyConstraint `json:"topology,omitempty" protobuf:"bytes,1,rep,name=topology"`
+}
+
+// WorkloadCompositePodGroupDisruptionMode defines how the child groups of a
+// composite group can be disrupted. Exactly one mode must be set.
+//
+// ---
+//
+// This is a reusable building block meant to be embedded in a composite
+// controller's own API, next to its other scheduling fields. It is the
+// group-of-groups analogue of WorkloadPodGroupDisruptionMode. It's recommended
+// to freeze the field after creation (+k8s:immutable), since the selected mode
+// is immutable in the compiled Workload. For example,
+//
+//	type JobSetSchedulingConfiguration struct {
+//		// DisruptionMode defines the mode in which this JobSet's child groups
+//		// can be disrupted.
+//		// One of Single, All.
+//		// This field is immutable after creation: it may not be added or removed,
+//		// and the selected mode may not be changed.
+//		// +optional
+//		// +k8s:optional
+//		// +k8s:immutable
+//		DisruptionMode *schedulingv1alpha3.WorkloadCompositePodGroupDisruptionMode `json:"disruptionMode,omitempty" protobuf:"bytes,N,opt,name=disruptionMode"`
+//
+//		// other scheduling fields
+//	}
+//
+// +union
+type WorkloadCompositePodGroupDisruptionMode struct {
+	// single specifies that child groups can be disrupted independently from
+	// each other.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	Single *WorkloadCompositePodGroupSingleDisruptionMode `json:"single,omitempty" protobuf:"bytes,1,opt,name=single"`
+
+	// all specifies that all child groups must be disrupted together.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	All *WorkloadCompositePodGroupAllDisruptionMode `json:"all,omitempty" protobuf:"bytes,2,opt,name=all"`
+}
+
+// WorkloadCompositePodGroupSingleDisruptionMode indicates that child groups
+// can be disrupted independently.
+type WorkloadCompositePodGroupSingleDisruptionMode struct {
+	// Intentionally empty for now.
+}
+
+// WorkloadCompositePodGroupAllDisruptionMode indicates that all child groups
+// must be disrupted together.
+type WorkloadCompositePodGroupAllDisruptionMode struct {
+	// Intentionally empty for now.
+}
+
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:supportsSubresource="/status"
@@ -834,6 +1239,26 @@ type CompositePodGroupSpec struct {
 	// +k8s:immutable
 	SchedulingPolicy CompositePodGroupSchedulingPolicy `json:"schedulingPolicy" protobuf:"bytes,3,opt,name=schedulingPolicy"`
 
+	// schedulingConstraints defines optional scheduling constraints (e.g. topology) for this CompositePodGroup.
+	// Controllers are expected to fill this field by copying it from a CompositePodGroupTemplate.
+	// This field is immutable.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:immutable
+	SchedulingConstraints *CompositePodGroupSchedulingConstraints `json:"schedulingConstraints,omitempty" protobuf:"bytes,4,opt,name=schedulingConstraints"`
+
+	// disruptionMode defines the mode in which a given CompositePodGroup can be disrupted.
+	// Controllers are expected to fill this field by copying it from a CompositePodGroupTemplate.
+	// One of Single, All. Defaults to Single if unset.
+	// This field is immutable.
+	//
+	// +default={"single": {}}
+	// +optional
+	// +k8s:optional
+	// +k8s:immutable
+	DisruptionMode *CompositeDisruptionMode `json:"disruptionMode,omitempty" protobuf:"bytes,5,opt,name=disruptionMode"`
+
 	// priorityClassName defines the priority that should be considered when scheduling this CompositePodGroup.
 	// Controllers are expected to fill this field by copying it from a CompositePodGroupTemplate.
 	// If left unspecified, it is validated and resolved similarly to the PriorityClassName field in Pods
@@ -845,7 +1270,7 @@ type CompositePodGroupSpec struct {
 	// +k8s:optional
 	// +k8s:format=k8s-long-name
 	// +k8s:immutable
-	PriorityClassName string `json:"priorityClassName,omitempty" protobuf:"bytes,4,opt,name=priorityClassName"`
+	PriorityClassName string `json:"priorityClassName,omitempty" protobuf:"bytes,6,opt,name=priorityClassName"`
 
 	// priority is the value of priority of this composite pod group. Various system components
 	// use this field to find the priority of the composite pod group. When Priority Admission
@@ -858,7 +1283,21 @@ type CompositePodGroupSpec struct {
 	// +k8s:optional
 	// +k8s:immutable
 	// +k8s:maximum=1000000000 # HighestUserDefinablePriority
-	Priority *int32 `json:"priority,omitempty" protobuf:"varint,5,opt,name=priority"`
+	Priority *int32 `json:"priority,omitempty" protobuf:"varint,7,opt,name=priority"`
+
+	// preemptionPolicy is the Policy for preempting pods/podgroups with lower priority.
+	// One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset.
+	// When Priority Admission Controller is enabled, it populates this field from PriorityClassName,
+	// and defaults to PreemptLowerPriority if value is unset in PriorityClass.
+	// This field is immutable.
+	// This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.
+	//
+	// +featureGate=PodGroupPreemptionPolicy
+	// +optional
+	// +k8s:immutable
+	// +k8s:ifDisabled("PodGroupPreemptionPolicy")=+k8s:forbidden
+	// +k8s:ifEnabled("PodGroupPreemptionPolicy")=+k8s:optional
+	PreemptionPolicy *PreemptionPolicy `json:"preemptionPolicy,omitempty" protobuf:"bytes,8,opt,name=preemptionPolicy"`
 }
 
 // CompositePodGroupSchedulingPolicy defines the scheduling configuration for a CompositePodGroup.
@@ -908,6 +1347,38 @@ type CompositeGangSchedulingPolicy struct {
 	MinGroupCount int32 `json:"minGroupCount" protobuf:"varint,1,req,name=minGroupCount"`
 }
 
+// CompositeDisruptionMode defines how individual entities within a composite pod group can be disrupted.
+// Exactly one mode must be set.
+//
+// +union
+type CompositeDisruptionMode struct {
+	// single specifies that children groups can be disrupted independently from each other.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	Single *SingleCompositeDisruptionMode `json:"single,omitempty" protobuf:"bytes,1,opt,name=single"`
+
+	// all specifies that all children groups can only be disrupted together.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:unionMember
+	All *AllCompositeDisruptionMode `json:"all,omitempty" protobuf:"bytes,2,opt,name=all"`
+}
+
+// SingleCompositeDisruptionMode means that individual children of a CompositePodGroup
+// can be disrupted or preempted independently.
+type SingleCompositeDisruptionMode struct {
+	// This is intentionally empty.
+}
+
+// AllCompositeDisruptionMode means that children of a CompositePodGroup can only be
+// disrupted or preempted together.
+type AllCompositeDisruptionMode struct {
+	// This is intentionally empty.
+}
+
 // CompositePodGroupStatus represents information about the status of a composite pod group.
 type CompositePodGroupStatus struct {
 	// conditions represent the latest observations of the CompositePodGroup's state.
@@ -942,4 +1413,17 @@ type CompositePodGroupStatus struct {
 	// +k8s:alpha(since: "1.37")=+k8s:listType=map
 	// +k8s:alpha(since: "1.37")=+k8s:listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+}
+
+// CompositePodGroupSchedulingConstraints defines scheduling constraints (e.g. topology) for a CompositePodGroup.
+type CompositePodGroupSchedulingConstraints struct {
+	// topology defines the topology constraints for the composite pod group.
+	// Currently only a single topology constraint can be specified. This may change in the future.
+	//
+	// +optional
+	// +k8s:optional
+	// +k8s:maxItems=1
+	// +listType=atomic
+	// +k8s:listType=atomic
+	Topology []TopologyConstraint `json:"topology,omitempty" protobuf:"bytes,1,rep,name=topology"`
 }
