@@ -35,8 +35,11 @@ func getWorkerNode() (*corev1.Node, error) {
 	}
 
 	for _, node := range nodes.Items {
+		if node.DeletionTimestamp != nil {
+			continue
+		}
 		if _, ok := node.GetLabels()[ControlPlaneNodeLabel]; !ok {
-			// get the first worker node
+			// get the first active worker node
 			return &node, nil
 		}
 
@@ -77,7 +80,7 @@ func getExternalIPFromNode(node *corev1.Node) (string, error) {
 	addresses := node.Status.Addresses
 	for _, address := range addresses {
 		if address.Type == corev1.NodeExternalIP {
-			return address.String(), nil
+			return address.Address, nil
 		}
 	}
 	return "", errors.New("external IP not found")
@@ -88,7 +91,7 @@ func getInternalIPFromNode(node *corev1.Node) (string, error) {
 	addresses := node.Status.Addresses
 	for _, address := range addresses {
 		if address.Type == corev1.NodeInternalIP {
-			return address.String(), nil
+			return address.Address, nil
 		}
 	}
 	return "", errors.New("internal IP not found")
@@ -186,23 +189,48 @@ var _ = Describe("Restarting, recreating and deleting VMs", func() {
 
 	BeforeEach(func() {
 		By("Get the name of worker node", func() {
-			workerNode, err = getWorkerNode()
-			Expect(err).ToNot(HaveOccurred())
+			Eventually(func() error {
+				var err error
+				workerNode, err = getWorkerNode()
+				if err != nil {
+					return err
+				}
+				if _, err = getInternalIPFromNode(workerNode); err != nil {
+					return err
+				}
+				return nil
+			}, 10*time.Minute, 5*time.Second).Should(Succeed(), "failed to get worker node with internal IP")
 
 			klog.Infof("The worker node for testing is %s\n", workerNode.Name)
 			originalWorkerNodeName = workerNode.Name
 		})
 
 		By("Get the machine object in bootstrap cluster", func() {
-			workerMachine, err = getWorkerMachine(workerNode.Name)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(workerMachine).ToNot(BeNil())
+			Eventually(func() error {
+				var err error
+				workerMachine, err = getWorkerMachine(workerNode.Name)
+				if err != nil {
+					return err
+				}
+				if workerMachine == nil {
+					return errors.New("worker machine is nil")
+				}
+				return nil
+			}, 5*time.Minute, 5*time.Second).Should(Succeed(), "failed to get machine object in bootstrap cluster")
 		})
 
 		By("Get corresponding VM object for node", func() {
-			workerVM, err = getWorkerVM(workerNode.Name)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(workerVM).ToNot(BeNil())
+			Eventually(func() error {
+				var err error
+				workerVM, err = getWorkerVM(workerNode.Name)
+				if err != nil {
+					return err
+				}
+				if workerVM == nil {
+					return errors.New("worker VM is nil")
+				}
+				return nil
+			}, 5*time.Minute, 5*time.Second).Should(Succeed(), "failed to get VM object for node")
 		})
 	})
 
@@ -281,21 +309,34 @@ var _ = Describe("Restarting, recreating and deleting VMs", func() {
 
 		By("Assert that externalIP, internalIP and providerID are preserved after VM restarts", func() {
 			Eventually(func() error {
+				var err error
 				workerNode, err = getWorkerNode()
-				Expect(err).ToNot(HaveOccurred())
+				if err != nil {
+					return err
+				}
 
 				newExternalIP, err := getExternalIPFromNode(workerNode)
-				Expect(err).ToNot(HaveOccurred())
+				if err != nil {
+					return err
+				}
 
 				newInternalIP, err := getInternalIPFromNode(workerNode)
-				Expect(err).ToNot(HaveOccurred())
+				if err != nil {
+					return err
+				}
 
-				Expect(newExternalIP).To(Equal(externalIP))
-				Expect(newInternalIP).To(Equal(internalIP))
-				Expect(getProviderIDFromNode(workerNode)).To(Equal(providerID))
+				if newExternalIP != externalIP {
+					return fmt.Errorf("external IP changed: expected %s, got %s", externalIP, newExternalIP)
+				}
+				if newInternalIP != internalIP {
+					return fmt.Errorf("internal IP changed: expected %s, got %s", internalIP, newInternalIP)
+				}
+				if getProviderIDFromNode(workerNode) != providerID {
+					return fmt.Errorf("provider ID changed: expected %s, got %s", providerID, getProviderIDFromNode(workerNode))
+				}
 
 				return nil
-			}).Should(Succeed())
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
 
@@ -357,24 +398,72 @@ var _ = Describe("Restarting, recreating and deleting VMs", func() {
 			return DoesNodeHasReadiness(workerNode, corev1.ConditionTrue)
 		}, 10*time.Minute).Should(BeTrue())
 
-		By("Powering off machine object")
-		task, err := workerVM.PowerOff(ctx)
-		Expect(err).ToNot(HaveOccurred(), "cannot power off vm")
+		By("Pause reconcile for workload cluster", func() {
+			updateClusterSpecPaused(ctx, workloadResult.Cluster.Name, workloadResult.Cluster.Namespace, "true")
+			Eventually(func() bool {
+				wldCluster := framework.GetClusterByName(ctx, framework.GetClusterByNameInput{
+					Getter:    proxy.GetClient(),
+					Namespace: workloadResult.Cluster.Namespace,
+					Name:      workloadResult.Cluster.Name,
+				})
 
-		err = task.Wait(ctx)
-		Expect(err).ToNot(HaveOccurred(), "cannot wait for vm to power off")
+				return ptr.Deref(wldCluster.Spec.Paused, false)
+			}, 180*time.Second, 10*time.Second).Should(BeTrue(), "Failed to pause the Workload Cluster")
+		})
 
-		By("Delete VM from VC")
-		task, err = workerVM.Destroy(ctx)
-		Expect(err).ToNot(HaveOccurred(), "cannot destroy vm")
+		By("Powering off machine object", func() {
+			task, err := workerVM.PowerOff(ctx)
+			Expect(err).ToNot(HaveOccurred(), "cannot power off vm")
 
-		err = task.Wait(ctx)
-		Expect(err).ToNot(HaveOccurred(), "cannot wait for vm to destroy")
+			err = task.Wait(ctx)
+			Expect(err).ToNot(HaveOccurred(), "cannot wait for vm to power off")
+		})
+
+		By("Wait for VM " + workerVM.Name() + " to go down")
+		Eventually(WaitForVMPowerState(workerVM.Name(), types.VirtualMachinePowerStatePoweredOff), 1*time.Minute, 2*time.Second).Should(Succeed())
+
+		By("Delete VM from VC", func() {
+			task, err := workerVM.Destroy(ctx)
+			Expect(err).ToNot(HaveOccurred(), "cannot destroy vm")
+
+			err = task.Wait(ctx)
+			Expect(err).ToNot(HaveOccurred(), "cannot wait for vm to destroy")
+		})
+
+		By("Unpause reconcile for workload cluster", func() {
+			updateClusterSpecPaused(ctx, workloadResult.Cluster.Name, workloadResult.Cluster.Namespace, "false")
+			Eventually(func() bool {
+				wldCluster := framework.GetClusterByName(ctx, framework.GetClusterByNameInput{
+					Getter:    proxy.GetClient(),
+					Namespace: workloadResult.Cluster.Namespace,
+					Name:      workloadResult.Cluster.Name,
+				})
+
+				return ptr.Deref(wldCluster.Spec.Paused, false)
+			}, 180*time.Second, 10*time.Second).Should(BeFalse(), "Failed to unpause the Workload Cluster")
+		})
 
 		By("Eventually original node will be gone")
 		Eventually(func() bool {
 			_, err := workloadClientset.CoreV1().Nodes().Get(ctx, workerNode.Name, metav1.GetOptions{})
 			return err != nil && apierrors.IsNotFound(err)
 		}, 5*time.Minute, 5*time.Second).Should(BeTrue())
+
+		By("Delete machine object")
+		err = deleteWorkerMachine(workerMachine.Name)
+		Expect(err).To(BeNil(), "cannot delete machine object")
+
+		By("Eventually new node will be created", func() {
+			Eventually(func() error {
+				var err error
+				if workerNode, err = getWorkerNode(); err != nil {
+					return err
+				}
+				if _, err = getInternalIPFromNode(workerNode); err != nil {
+					return err
+				}
+				return nil
+			}, 10*time.Minute, 5*time.Second).Should(Succeed(), "failed to get new worker node with internal IP")
+		})
 	})
 })
