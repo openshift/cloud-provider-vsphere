@@ -32,7 +32,7 @@ TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
 #
 # Go.
 #
-GO_VERSION ?= 1.26.6
+GO_VERSION ?= 1.26.10
 
 # Binaries
 GO_INSTALL := ./hack/go-install.sh
@@ -250,6 +250,7 @@ KUBE_BUILDER_VERSION = 2.3.1
 KUBE_BUILDER = kubebuilder_${KUBE_BUILDER_VERSION}_${GOOS}_${GOARCH}
 KUBE_BUILDER_DIR = "/usr/local/kubebuilder/$(KUBE_BUILDER)"
 unit unit-test:
+	hack/install-helm-test.sh
 	@if [ ! -d $(KUBE_BUILDER_DIR) ]; then \
 	curl -L https://github.com/kubernetes-sigs/kubebuilder/releases/download/v${KUBE_BUILDER_VERSION}/${KUBE_BUILDER}.tar.gz | tar -xz -C /tmp/ ;\
 	mv /tmp/${KUBE_BUILDER} /usr/local/kubebuilder; \
