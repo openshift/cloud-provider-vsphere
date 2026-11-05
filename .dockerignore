@@ -12,6 +12,10 @@
 # Ignore marker files.
 **/*.d
 
+# Ignore any Dockerfiles at the root of the project.
+/Dockerfile*
+
+*.json
 *.sublime-project
 *.sublime-workspace
 *.swp
