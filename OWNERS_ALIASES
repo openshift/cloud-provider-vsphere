@@ -1,0 +1,17 @@
+# See the OWNERS docs: https://git.k8s.io/community/docs/devel/owners.md
+
+aliases:
+  sig-cloud-provider-leads:
+    - bridgetkromhout
+    - cheftako
+    - elmiko
+    - joelspeed
+  cloud-provider-vsphere-maintainers:
+    - 12345lcr
+    - chenlin07
+    - DanielXiao
+    - lubronzhan
+    - silvery1622
+    - wyike
+    - YanzhaoLi
+    - zhanggbj
