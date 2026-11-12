@@ -1,0 +1,12 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+approvers:
+  - deads2k
+  - derekwaynecarr
+reviewers:
+  - deads2k
+  - derekwaynecarr
+labels:
+  - sig/api-machinery
+emeritus_approvers:
+  - vishh

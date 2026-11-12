@@ -1,0 +1,28 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+approvers:
+  - sig-cloud-provider-leads
+reviewers:
+  - aojea
+  - wojtek-t
+  - deads2k
+  - derekwaynecarr
+  - liggitt
+  - sttts
+  - dchen1107
+  - saad-ali
+  - luxas
+  - justinsb
+  - jsafrane
+  - dims
+  - freehan
+  - jingxu97
+  - wlan0
+  - cheftako
+  - andrewsykim
+emeritus_approvers:
+  - dims
+  - andrewsykim
+labels:
+  - sig/cloud-provider
+  - area/cloudprovider

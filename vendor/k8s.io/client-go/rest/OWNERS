@@ -1,0 +1,12 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+reviewers:
+  - thockin
+  - wojtek-t
+  - deads2k
+  - liggitt
+  - sttts
+  - luxas
+  - dims
+  - cjcullen
+  - lojies

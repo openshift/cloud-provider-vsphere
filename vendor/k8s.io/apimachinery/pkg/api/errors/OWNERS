@@ -1,0 +1,14 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+reviewers:
+  - thockin
+  - wojtek-t
+  - deads2k
+  - derekwaynecarr
+  - caesarxuchao
+  - liggitt
+  - saad-ali
+  - janetkuo
+  - tallclair
+  - dims
+  - cjcullen

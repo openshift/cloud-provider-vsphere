@@ -1,0 +1,172 @@
+/*
+Copyright 2018 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package managedfields
+
+import (
+	"fmt"
+
+	smdschema "sigs.k8s.io/structured-merge-diff/v7/schema"
+	"sigs.k8s.io/structured-merge-diff/v7/typed"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/kube-openapi/pkg/schemaconv"
+	"k8s.io/kube-openapi/pkg/util/proto"
+	"k8s.io/kube-openapi/pkg/validation/spec"
+)
+
+// groupVersionKindExtensionKey is the key used to lookup the
+// GroupVersionKind value for an object definition from the
+// definition's "extensions" map.
+const groupVersionKindExtensionKey = "x-kubernetes-group-version-kind"
+
+// GvkParser contains a Parser that allows introspecting the schema.
+type GvkParser struct {
+	gvks   map[schema.GroupVersionKind]string
+	parser typed.Parser
+}
+
+// Type returns a helper which can produce objects of the given type. Any
+// errors are deferred until a further function is called.
+func (p *GvkParser) Type(gvk schema.GroupVersionKind) *typed.ParseableType {
+	typeName, ok := p.gvks[gvk]
+	if !ok {
+		return nil
+	}
+	t := p.parser.Type(typeName)
+	return &t
+}
+
+// NewGVKParser builds a GVKParser from a proto.Models. This
+// will automatically find the proper version of the object, and the
+// corresponding schema information.
+func NewGVKParser(models proto.Models, preserveUnknownFields bool) (*GvkParser, error) {
+	typeSchema, err := schemaconv.ToSchemaWithPreserveUnknownFields(models, preserveUnknownFields)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert models to schema: %v", err)
+	}
+	parser := GvkParser{
+		gvks: map[schema.GroupVersionKind]string{},
+	}
+	parser.parser = typed.Parser{Schema: smdschema.Schema{Types: typeSchema.Types}}
+	for _, modelName := range models.ListModels() {
+		model := models.LookupModel(modelName)
+		if model == nil {
+			panic(fmt.Sprintf("ListModels returns a model that can't be looked-up for: %v", modelName))
+		}
+		gvkList := parseGroupVersionKind(model.GetExtensions())
+		for _, gvk := range gvkList {
+			if len(gvk.Kind) > 0 {
+				_, ok := parser.gvks[gvk]
+				if ok {
+					return nil, fmt.Errorf("duplicate entry for %v", gvk)
+				}
+				parser.gvks[gvk] = modelName
+			}
+		}
+	}
+	return &parser, nil
+}
+
+// NewGVKParserFromOpenAPIV3 builds a GvkParser from the component schemas of
+// an OpenAPI v3 document, such as the one a group-version serves at
+// /openapi/v3/apis/<group>/<version>. The schemas map is keyed by model name
+// (i.e. the named components.schemas entry, such as
+// "io.k8s.apimachinery.pkg.api.resource.Quantity"). The schemas are interpreted
+// the same way NewTypeConverter interprets them for server-side apply; as
+// there, a group-version-kind listed by more than one schema resolves to the
+// last one seen.
+func NewGVKParserFromOpenAPIV3(schemas map[string]*spec.Schema, preserveUnknownFields bool) (*GvkParser, error) {
+	typeSchema, err := schemaconv.ToSchemaFromOpenAPI(schemas, preserveUnknownFields)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert models to schema: %w", err)
+	}
+	parser := GvkParser{
+		gvks:   map[schema.GroupVersionKind]string{},
+		parser: typed.Parser{Schema: smdschema.Schema{Types: typeSchema.Types}},
+	}
+	for modelName, model := range schemas {
+		gvkList := parseGroupVersionKind(model.Extensions)
+		for _, gvk := range gvkList {
+			if len(gvk.Kind) > 0 {
+				parser.gvks[gvk] = modelName
+			}
+		}
+	}
+	return &parser, nil
+}
+
+// Get and parse GroupVersionKind from the extension. Returns empty if it doesn't have one.
+func parseGroupVersionKind(extensions map[string]interface{}) []schema.GroupVersionKind {
+	gvkListResult := []schema.GroupVersionKind{}
+
+	// Get the extensions
+	gvkExtension, ok := extensions[groupVersionKindExtensionKey]
+	if !ok {
+		return []schema.GroupVersionKind{}
+	}
+
+	// gvk extension must be a list of at least 1 element.
+	gvkList, ok := gvkExtension.([]interface{})
+	if !ok {
+		return []schema.GroupVersionKind{}
+	}
+
+	for _, gvk := range gvkList {
+		var group, version, kind string
+
+		// gvk extension list must be a map with group, version, and
+		// kind fields
+		if gvkMap, ok := gvk.(map[interface{}]interface{}); ok {
+			group, ok = gvkMap["group"].(string)
+			if !ok {
+				continue
+			}
+			version, ok = gvkMap["version"].(string)
+			if !ok {
+				continue
+			}
+			kind, ok = gvkMap["kind"].(string)
+			if !ok {
+				continue
+			}
+
+		} else if gvkMap, ok := gvk.(map[string]interface{}); ok {
+			group, ok = gvkMap["group"].(string)
+			if !ok {
+				continue
+			}
+			version, ok = gvkMap["version"].(string)
+			if !ok {
+				continue
+			}
+			kind, ok = gvkMap["kind"].(string)
+			if !ok {
+				continue
+			}
+		} else {
+			continue
+		}
+
+		gvkListResult = append(gvkListResult, schema.GroupVersionKind{
+			Group:   group,
+			Version: version,
+			Kind:    kind,
+		})
+	}
+
+	return gvkListResult
+}

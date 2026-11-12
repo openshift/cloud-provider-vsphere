@@ -1,0 +1,331 @@
+/*
+Copyright 2021 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package cacher
+
+import (
+	"fmt"
+	"iter"
+	"sync"
+
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apiserver/pkg/storage/cacher/consistency"
+	"k8s.io/apiserver/pkg/storage/cacher/store"
+	"k8s.io/klog/v2"
+)
+
+// cacheIntervalSource provides the iteration logic for a watchCacheInterval.
+type cacheIntervalSource interface {
+	All() iter.Seq2[*watchCacheEvent, error]
+}
+
+// watchCacheInterval serves as an abstraction over a source
+// of watchCacheEvents. It delegates iteration to a cacheIntervalSource
+// and holds common metadata (resourceVersion, initialEventsEndBookmark).
+type watchCacheInterval struct {
+	// source provides the iteration logic for this interval.
+	source cacheIntervalSource
+
+	// resourceVersion is the resourceVersion from which
+	// the interval was constructed.
+	resourceVersion uint64
+
+	// initialEventsEndBookmark will be sent after sending all events in cacheInterval
+	initialEventsEndBookmark *watchCacheEvent
+}
+
+func (wci *watchCacheInterval) All() iter.Seq2[*watchCacheEvent, error] {
+	return wci.source.All()
+}
+
+func eventsFromNext(next func() (*watchCacheEvent, error)) iter.Seq2[*watchCacheEvent, error] {
+	return func(yield func(*watchCacheEvent, error) bool) {
+		for {
+			event, err := next()
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if event == nil || !yield(event, nil) {
+				return
+			}
+		}
+	}
+}
+
+type indexerFunc func(int) *watchCacheEvent
+type indexValidator func(int) bool
+
+func newCacheInterval(startIndex, endIndex int, indexer indexerFunc, indexValidator indexValidator, resourceVersion uint64, locker sync.Locker) *watchCacheInterval {
+	source := &historyCacheIntervalSource{
+		startIndex:     startIndex,
+		endIndex:       endIndex,
+		indexer:        indexer,
+		indexValidator: indexValidator,
+		buffer:         &watchCacheIntervalBuffer{buffer: make([]*watchCacheEvent, bufferSize)},
+		lock:           locker,
+	}
+	return &watchCacheInterval{
+		source:          source,
+		resourceVersion: max(resourceVersion, source.maxResourceVersion()),
+	}
+}
+
+// newCacheIntervalFromLazySnapshot captures a snapshot under the watch cache
+// lock and traverses it incrementally after the lock is released.
+func newCacheIntervalFromLazySnapshot(resourceVersion uint64, snap store.Snapshot, key string, recursive bool) *watchCacheInterval {
+	return &watchCacheInterval{
+		source: &lazySnapshotCacheIntervalSource{
+			snapshot:        snap,
+			resourceVersion: resourceVersion,
+			key:             key,
+			recursive:       recursive,
+		},
+		resourceVersion: resourceVersion,
+	}
+}
+
+func storeElementToWatchCacheEvent(elem *store.Element, resourceVersion uint64) *watchCacheEvent {
+	return &watchCacheEvent{
+		Type:            watch.Added,
+		Object:          elem.Object,
+		ObjLabels:       elem.Labels,
+		ObjFields:       elem.Fields,
+		Key:             elem.Key,
+		ResourceVersion: resourceVersion,
+	}
+}
+
+// historyCacheIntervalSource serves events from the watchCache circular buffer.
+// It maintains a window of events over the underlying source and copies them
+// in batches into an internal buffer to reduce lock acquisition frequency.
+//
+// An interval can be either valid or invalid at any given point of time.
+// When the circular buffer is full and an event needs to be popped off,
+// watchCache::startIndex is incremented. In this case, an interval tracking
+// that popped event is valid only if it has already been copied to its
+// internal buffer. However, for efficiency we perform that lazily and we
+// mark an interval as invalid iff we need to copy events from the watchCache
+// and we end up needing events that have already been popped off. This
+// translates to the following condition:
+//
+//	historyCacheIntervalSource::startIndex >= watchCache::startIndex.
+//
+// When this condition becomes false, the interval is no longer valid and
+// should not be used to retrieve and serve elements from the underlying
+// source.
+type historyCacheIntervalSource struct {
+	// startIndex denotes the starting point of the interval
+	// being considered. The value is the index in the actual
+	// source of watchCacheEvents. If the source of events is
+	// the watchCache, then this must be used modulo capacity.
+	startIndex int
+
+	// endIndex denotes the ending point of the interval being
+	// considered. The value is the index in the actual source
+	// of events. If the source of the events is the watchCache,
+	// then this should be used modulo capacity.
+	endIndex int
+
+	// indexer is meant to inject behaviour for how an event must
+	// be retrieved from the underlying source given an index.
+	indexer indexerFunc
+
+	// indexValidator is used to check if a given index is still
+	// valid perspective. If it is deemed that the index is not
+	// valid, then this interval can no longer be used to serve
+	// events. Use of indexValidator is warranted only in cases
+	// where the window of events in the underlying source can
+	// change over time. Furthermore, an interval is invalid if
+	// its startIndex no longer coincides with the startIndex of
+	// underlying source.
+	indexValidator indexValidator
+
+	// buffer holds watchCacheEvents that this interval returns on
+	// a call to Next(). This exists mainly to reduce acquiring the
+	// lock on each invocation of Next().
+	buffer *watchCacheIntervalBuffer
+
+	// lock effectively protects access to the underlying source
+	// of events through - indexer and indexValidator.
+	//
+	// Given that indexer and indexValidator only read state, if
+	// possible, Locker obtained through RLocker() is provided.
+	lock sync.Locker
+
+	// lastResourceVersion tracks the resourceVersion of the last event read from
+	// the underlying source to assert that events are ordered by resourceVersion.
+	lastResourceVersion uint64
+}
+
+func (s *historyCacheIntervalSource) maxResourceVersion() uint64 {
+	if s.endIndex <= s.startIndex {
+		return 0
+	}
+	return s.indexer(s.endIndex - 1).ResourceVersion
+}
+
+// next returns the next event from the watchCache circular buffer.
+// An error is returned if the interval has been invalidated.
+//
+// An interval can be either valid or invalid at any given point of time.
+// When the circular buffer is full and an event needs to be popped off,
+// watchCache::startIndex is incremented. In this case, an interval tracking
+// that popped event is valid only if it has already been copied to its
+// internal buffer. However, for efficiency we perform that lazily and we
+// mark an interval as invalid iff we need to copy events from the watchCache
+// and we end up needing events that have already been popped off. This
+// translates to the following condition:
+//
+//	historyCacheIntervalSource::startIndex >= watchCache::startIndex.
+//
+// When this condition becomes false, the interval is no longer valid and
+// should not be used to retrieve and serve elements from the underlying
+// source.
+func (s *historyCacheIntervalSource) next() (*watchCacheEvent, error) {
+	// if there are items in the buffer to return, return from
+	// the buffer.
+	if event, exists := s.buffer.next(); exists {
+		return event, nil
+	}
+	// check if there are still other events in this interval
+	// that can be processed.
+	if s.startIndex >= s.endIndex {
+		return nil, nil
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if valid := s.indexValidator(s.startIndex); !valid {
+		return nil, fmt.Errorf("cache interval invalidated, interval startIndex: %d", s.startIndex)
+	}
+
+	s.fillBuffer()
+	if event, exists := s.buffer.next(); exists {
+		return event, nil
+	}
+	return nil, nil
+}
+
+func (s *historyCacheIntervalSource) All() iter.Seq2[*watchCacheEvent, error] {
+	return eventsFromNext(s.next)
+}
+
+func (s *historyCacheIntervalSource) fillBuffer() {
+	s.buffer.startIndex = 0
+	s.buffer.endIndex = 0
+	for s.startIndex < s.endIndex && !s.buffer.isFull() {
+		event := s.indexer(s.startIndex)
+		if event == nil {
+			break
+		}
+		if event.ResourceVersion <= s.lastResourceVersion {
+			klog.ErrorS(nil, "Watch cache history interval event resourceVersion must be greater than previous event resourceVersion", "eventResourceVersion", event.ResourceVersion, "lastResourceVersion", s.lastResourceVersion)
+			if consistency.PanicOnCacheInconsistency {
+				panic(fmt.Sprintf("Watch cache history interval event resourceVersion (%d) must be greater than previous event resourceVersion (%d)", event.ResourceVersion, s.lastResourceVersion))
+			}
+		}
+		s.lastResourceVersion = event.ResourceVersion
+		s.buffer.buffer[s.buffer.endIndex] = event
+		s.buffer.endIndex++
+		s.startIndex++
+	}
+}
+
+// lazySnapshotCacheIntervalSource serves events from an immutable snapshot.
+// The snapshot reference is captured under the watchCache lock, while its
+// contents are traversed one event at a time after releasing that lock.
+type lazySnapshotCacheIntervalSource struct {
+	// snapshot is an immutable point-in-time copy of the store.
+	snapshot store.Snapshot
+	// resourceVersion is assigned to every watchCacheEvent produced by this source.
+	resourceVersion uint64
+	key             string
+	recursive       bool
+}
+
+func (s *lazySnapshotCacheIntervalSource) All() iter.Seq2[*watchCacheEvent, error] {
+	return func(yield func(*watchCacheEvent, error) bool) {
+		// Recursive expects key to be a prefix thus storage.PrepareKey ensures it has "/" suffix.
+		// For requests with selector matching single object, we expect the caller to set opts.Recursive=false and use the full key.
+		if s.recursive {
+			for elem, err := range s.snapshot.RangePrefix(s.key, "").All() {
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if !yield(storeElementToWatchCacheEvent(elem, s.resourceVersion), nil) {
+					return
+				}
+			}
+			return
+		}
+		// Non-recursive expects key to be an exact match.
+		obj, exists, err := s.snapshot.GetByKey(s.key)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		if !exists {
+			return
+		}
+		elem, ok := obj.(*store.Element)
+		if !ok {
+			return
+		}
+		if !yield(storeElementToWatchCacheEvent(elem, s.resourceVersion), nil) {
+			return
+		}
+	}
+}
+
+const bufferSize = 100
+
+// watchCacheIntervalBuffer is used to reduce acquiring
+// the lock on each invocation of historyCacheIntervalSource.next().
+type watchCacheIntervalBuffer struct {
+	// buffer is used to hold watchCacheEvents that
+	// the interval returns on a call to Next().
+	buffer []*watchCacheEvent
+	// The first element of buffer is defined by startIndex,
+	// its last element is defined by endIndex.
+	startIndex int
+	endIndex   int
+}
+
+// next returns the next event present in the interval buffer provided
+// it is not empty.
+func (wcib *watchCacheIntervalBuffer) next() (*watchCacheEvent, bool) {
+	if wcib.isEmpty() {
+		return nil, false
+	}
+	next := wcib.buffer[wcib.startIndex]
+	// clean the unused event reference in the buffer. If this is not
+	// done, event if the watch event is aged out from the watch
+	// cache, it will not be GCed during the lifetime of the watcher
+	// that holds a reference to the buffer.
+	wcib.buffer[wcib.startIndex] = nil
+	wcib.startIndex++
+	return next, true
+}
+
+func (wcib *watchCacheIntervalBuffer) isFull() bool {
+	return wcib.endIndex >= bufferSize
+}
+
+func (wcib *watchCacheIntervalBuffer) isEmpty() bool {
+	return wcib.startIndex == wcib.endIndex
+}

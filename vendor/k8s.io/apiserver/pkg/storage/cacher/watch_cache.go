@@ -1,0 +1,671 @@
+/*
+Copyright 2015 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package cacher
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apiserver/pkg/storage"
+	"k8s.io/apiserver/pkg/storage/cacher/consistency"
+	"k8s.io/apiserver/pkg/storage/cacher/metrics"
+	"k8s.io/apiserver/pkg/storage/cacher/progress"
+	"k8s.io/apiserver/pkg/storage/cacher/store"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/component-base/tracing"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
+)
+
+// watchCacheEvent is a single "watch event" that is send to users of
+// watchCache. Additionally to a typical "watch.Event" it contains
+// the previous value of the object to enable proper filtering in the
+// upper layers.
+type watchCacheEvent struct {
+	Type            watch.EventType
+	Object          runtime.Object
+	ObjLabels       labels.Set
+	ObjFields       fields.Set
+	PrevObject      runtime.Object
+	PrevObjLabels   labels.Set
+	PrevObjFields   fields.Set
+	Key             string
+	ResourceVersion uint64
+	RecordTime      time.Time
+	// timeline carries the shared, pre-fan-out dispatch-lifecycle timestamps of
+	// this event (currently PointCacheReceived). Per-watcher points are filled in
+	// on delivery.
+	timeline metrics.DispatchTimeline
+}
+
+// watchCache implements a Store interface.
+// However, it depends on the elements implementing runtime.Object interface.
+//
+// watchCache is a "sliding window" (with a limited capacity) of objects
+// observed from a watch.
+type watchCache struct {
+	sync.RWMutex
+
+	// freshness is used to notify waiters when the cache is fresh enough.
+	freshness *freshnessWaiter
+
+	// ResourceVersion up to which the watchCache is propagated.
+	resourceVersion uint64
+
+	// This handler is run at the end of every successful Replace() method.
+	onReplace func()
+
+	history *watchCacheHistory
+	storage *store.WatchCacheStorage
+
+	config *ImmutableWatchCacheConfig
+}
+
+type ImmutableWatchCacheConfig struct {
+	// keyFunc is used to get a key in the underlying storage for a given object.
+	keyFunc func(runtime.Object) (string, error)
+
+	// getAttrsFunc is used to get labels and fields of an object.
+	getAttrsFunc func(runtime.Object) (labels.Set, fields.Set, error)
+
+	// This handler is run at the end of every Add/Update/Delete method
+	// and additionally gets the previous value of the object.
+	eventHandler func(*watchCacheEvent)
+
+	// for testing timeouts.
+	clock clock.Clock
+
+	// An underlying storage.Versioner.
+	versioner storage.Versioner
+
+	// cacher's group resource
+	groupResource schema.GroupResource
+
+	// For testing cache interval invalidation.
+	indexValidator indexValidator
+
+	getCurrentRV func(context.Context) (uint64, error)
+}
+
+func newWatchCache(
+	keyFunc func(runtime.Object) (string, error),
+	eventHandler func(*watchCacheEvent),
+	getAttrsFunc func(runtime.Object) (labels.Set, fields.Set, error),
+	versioner storage.Versioner,
+	indexers *cache.Indexers,
+	clock clock.WithTicker,
+	eventFreshDuration time.Duration,
+	groupResource schema.GroupResource,
+	progressRequester *progress.ConditionalProgressRequester,
+	getCurrentRV func(context.Context) (uint64, error),
+) *watchCache {
+	config := &ImmutableWatchCacheConfig{
+		keyFunc:       keyFunc,
+		getAttrsFunc:  getAttrsFunc,
+		eventHandler:  eventHandler,
+		clock:         clock,
+		versioner:     versioner,
+		groupResource: groupResource,
+		getCurrentRV:  getCurrentRV,
+	}
+
+	wc := &watchCache{
+		resourceVersion: 0,
+		config:          config,
+		history:         newWatchCacheHistory(config, eventFreshDuration),
+		storage:         store.NewWatchCacheStorage(indexers),
+	}
+	wc.freshness = newFreshnessWaiter(wc.RLocker(), &wc.resourceVersion, clock, groupResource, progressRequester)
+	wc.config.indexValidator = wc.history.isIndexValidLocked
+
+	return wc
+}
+
+// Add takes runtime.Object as an argument.
+func (w *watchCache) Add(obj interface{}) error {
+	object, resourceVersion, err := w.objectToVersionedRuntimeObject(obj)
+	if err != nil {
+		return err
+	}
+	event := watch.Event{Type: watch.Added, Object: object}
+
+	return w.processEvent(event, resourceVersion)
+}
+
+// Update takes runtime.Object as an argument.
+func (w *watchCache) Update(obj interface{}) error {
+	object, resourceVersion, err := w.objectToVersionedRuntimeObject(obj)
+	if err != nil {
+		return err
+	}
+	event := watch.Event{Type: watch.Modified, Object: object}
+
+	return w.processEvent(event, resourceVersion)
+}
+
+// Delete takes runtime.Object as an argument.
+func (w *watchCache) Delete(obj interface{}) error {
+	object, resourceVersion, err := w.objectToVersionedRuntimeObject(obj)
+	if err != nil {
+		return err
+	}
+	event := watch.Event{Type: watch.Deleted, Object: object}
+
+	return w.processEvent(event, resourceVersion)
+}
+
+func (w *watchCache) objectToVersionedRuntimeObject(obj interface{}) (runtime.Object, uint64, error) {
+	object, ok := obj.(runtime.Object)
+	if !ok {
+		return nil, 0, fmt.Errorf("obj does not implement runtime.Object interface: %v", obj)
+	}
+	resourceVersion, err := w.config.versioner.ObjectResourceVersion(object)
+	if err != nil {
+		return nil, 0, err
+	}
+	return object, resourceVersion, nil
+}
+
+// processEvent is safe as long as there is at most one call to it in flight
+// at any point in time.
+func (w *watchCache) processEvent(event watch.Event, resourceVersion uint64) error {
+	cacheReceived := w.config.clock.Now()
+	recordTime := cacheReceived
+	if withRecordTime, ok := event.Object.(storage.WatchEventWithRecordTime); ok {
+		recordTime = withRecordTime.RecordTime()
+		event.Object = withRecordTime.Unwrap()
+	}
+
+	metrics.EventsReceivedCounter.WithLabelValues(w.config.groupResource.Group, w.config.groupResource.Resource).Inc()
+
+	key, err := w.config.keyFunc(event.Object)
+	if err != nil {
+		return fmt.Errorf("couldn't compute key: %v", err)
+	}
+	elem := &store.Element{Key: key, Object: event.Object}
+	elem.Labels, elem.Fields, err = w.config.getAttrsFunc(event.Object)
+	if err != nil {
+		return err
+	}
+
+	wcEvent := &watchCacheEvent{
+		Type:            event.Type,
+		Object:          elem.Object,
+		ObjLabels:       elem.Labels,
+		ObjFields:       elem.Fields,
+		Key:             key,
+		ResourceVersion: resourceVersion,
+		RecordTime:      recordTime,
+	}
+	wcEvent.timeline.MarkAt(metrics.PointStorageDecoded, recordTime)
+	wcEvent.timeline.MarkAt(metrics.PointCacheReceived, cacheReceived)
+
+	if err := func() error {
+		w.Lock()
+		defer w.Unlock()
+
+		previous, err := w.storage.UpdateStore(event.Type, elem, resourceVersion)
+		if err != nil {
+			return err
+		}
+		if previous != nil {
+			wcEvent.PrevObject = previous.Object
+			wcEvent.PrevObjLabels = previous.Labels
+			wcEvent.PrevObjFields = previous.Fields
+		}
+
+		w.history.updateCache(wcEvent)
+		w.resourceVersion = resourceVersion
+		defer w.freshness.broadcast()
+
+		if w.history.isCacheFullLocked() {
+			oldestRV := w.history.OldestResourceVersionLocked()
+			w.storage.CompactSnapshotsLocked(oldestRV)
+		}
+		return nil
+	}(); err != nil {
+		return err
+	}
+
+	// Avoid calling event handler under lock.
+	// This is safe as long as there is at most one call to Add/Update/Delete and
+	// UpdateResourceVersion in flight at any point in time, which is true now,
+	// because reflector calls them synchronously from its main thread.
+	if w.config.eventHandler != nil {
+		w.config.eventHandler(wcEvent)
+	}
+	metrics.RecordResourceVersion(w.config.groupResource, resourceVersion)
+	return nil
+}
+
+func (w *watchCache) UpdateResourceVersion(resourceVersion string) {
+	rv, err := w.config.versioner.ParseResourceVersion(resourceVersion)
+	if err != nil {
+		klog.Errorf("Couldn't parse resourceVersion: %v", err)
+		return
+	}
+
+	// Reflector calls UpdateResourceVersion after every watch event, including
+	// the Add/Update/Delete it just delivered, which already advanced the cache
+	// to that resourceVersion. Skipping those no-op updates avoids taking the
+	// write lock, waking up all waiting readers and dispatching a bookmark that
+	// carries no new information.
+	if func() bool {
+		w.RLock()
+		defer w.RUnlock()
+		return w.resourceVersion == rv
+	}() {
+		return
+	}
+
+	func() {
+		w.Lock()
+		defer w.Unlock()
+		w.storage.UpdateResourceVersion(rv)
+		w.resourceVersion = rv
+		w.freshness.broadcast()
+	}()
+
+	// Avoid calling event handler under lock.
+	// This is safe as long as there is at most one call to Add/Update/Delete and
+	// UpdateResourceVersion in flight at any point in time, which is true now,
+	// because reflector calls them synchronously from its main thread.
+	if w.config.eventHandler != nil {
+		wcEvent := &watchCacheEvent{
+			Type:            watch.Bookmark,
+			ResourceVersion: rv,
+		}
+		w.config.eventHandler(wcEvent)
+	}
+	metrics.RecordResourceVersion(w.config.groupResource, rv)
+}
+
+// waitUntilFreshLocked waits until cache is at least as fresh as given resourceVersion.
+func (w *watchCache) waitUntilFreshLocked(ctx context.Context, resourceVersion uint64) error {
+	return w.freshness.waitUntilFreshLocked(ctx, resourceVersion)
+}
+
+func (c *watchCache) WaitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions) (listResp, string, error) {
+	if opts.Recursive {
+		return c.waitUntilFreshAndListRecursive(ctx, key, opts)
+	}
+	return c.waitUntilFreshAndListNonRecursive(ctx, key, opts)
+}
+
+func (c *watchCache) waitUntilFreshAndListNonRecursive(ctx context.Context, key string, opts storage.ListOptions) (listResp, string, error) {
+	var resourceVersion string
+	if opts.ResourceVersionMatch == "" && opts.ResourceVersion == "" {
+		resourceVersion = ""
+	} else {
+		if opts.ResourceVersion == "" {
+			resourceVersion = "0"
+		} else {
+			resourceVersion = opts.ResourceVersion
+		}
+	}
+	obj, exists, readResourceVersion, err := c.WaitUntilFreshAndGet(ctx, resourceVersion, key)
+	if err != nil {
+		return listResp{}, "", err
+	}
+	if !exists {
+		return listResp{ResourceVersion: readResourceVersion, Range: store.EmptyRange()}, "", nil
+	}
+	elem, ok := obj.(*store.Element)
+	if !ok {
+		return listResp{}, "", fmt.Errorf("non *store.Element returned from storage: %v", obj)
+	}
+	return listResp{ResourceVersion: readResourceVersion, Range: store.SingleElementRange(elem)}, "", nil
+}
+
+// WaitUntilFreshAndList returns list of pointers to `storeElement` objects along
+// with their ResourceVersion and the name of the index, if any, that was used.
+func (w *watchCache) WaitUntilFreshAndGetKeys(ctx context.Context, resourceVersion uint64) ([]string, error) {
+	span := tracing.SpanFromContext(ctx)
+	snap, _, err := w.waitAndGetLatestSnapshot(ctx, false, resourceVersion, nil)
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for elem, err := range snap.RangePrefix("", "").All() {
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, elem.Key)
+	}
+	span.AddEvent("ListKeys success")
+	return keys, nil
+}
+
+type readConsistency string
+
+const (
+	consistencyConsistent   readConsistency = "Consistent"
+	consistencyExact        readConsistency = "Exact"
+	consistencyNotOlderThan readConsistency = "NotOlderThan"
+)
+
+func (w *watchCache) waitUntilFreshAndListRecursive(ctx context.Context, key string, opts storage.ListOptions) (resp listResp, index string, err error) {
+	recursive := true
+	semantic, listRV, continueKey, matchValues, err := listRecursiveConsistency(ctx, key, w.config.versioner, opts)
+	if err != nil {
+		return listResp{}, "", err
+	}
+	snap, index, err := w.waitAndReadSnapshot(ctx, semantic, listRV, recursive, matchValues)
+	if err != nil {
+		return listResp{}, "", err
+	}
+	return listResp{ResourceVersion: snap.ResourceVersion(), Range: snap.RangePrefix(key, continueKey)}, index, nil
+}
+
+// NOTICE: Structure follows the shouldDelegateList function in
+// staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+func listRecursiveConsistency(ctx context.Context, keyPrefix string, versioner storage.Versioner, opts storage.ListOptions) (semantic readConsistency, listRV uint64, continueKey string, matchValues []storage.MatchValue, err error) {
+	matchValues = opts.Predicate.MatcherIndex(ctx)
+	listRV, err = versioner.ParseResourceVersion(opts.ResourceVersion)
+	if err != nil {
+		return "", 0, "", nil, err
+	}
+	// The RV semantic below is for Recursive List, non-recursive lists should use waitUntilFreshAndListNonRecursive.
+	switch opts.ResourceVersionMatch {
+	case metav1.ResourceVersionMatchExact:
+		semantic = consistencyExact
+	case metav1.ResourceVersionMatchNotOlderThan:
+		semantic = consistencyNotOlderThan
+	case "":
+		var continueRV int64
+		// Continue
+		if len(opts.Predicate.Continue) > 0 {
+			continueKey, continueRV, err = storage.DecodeContinue(opts.Predicate.Continue, keyPrefix)
+			if err != nil {
+				return "", 0, "", nil, errors.NewBadRequest(fmt.Sprintf("invalid continue token: %v", err))
+			}
+			if continueRV > 0 {
+				listRV = uint64(continueRV)
+				semantic = consistencyExact
+			} else {
+				// Don't pass matchValues as they don't support continueKey
+				matchValues = nil
+				semantic = consistencyConsistent
+			}
+		} else if opts.Predicate.Limit > 0 && len(opts.ResourceVersion) > 0 && opts.ResourceVersion != "0" {
+			// Legacy exact match
+			semantic = consistencyExact
+		} else if opts.ResourceVersion == "" {
+			semantic = consistencyConsistent
+		} else {
+			semantic = consistencyNotOlderThan
+		}
+	default:
+		semantic = consistencyNotOlderThan
+	}
+	return semantic, listRV, continueKey, matchValues, nil
+}
+
+func (w *watchCache) waitAndReadSnapshot(ctx context.Context, semantic readConsistency, resourceVersion uint64, recursive bool, matchValues []storage.MatchValue) (snap store.Snapshot, index string, err error) {
+	switch semantic {
+	case consistencyExact:
+		snap, err = w.waitAndGetExactSnapshot(ctx, resourceVersion)
+		return snap, "", err
+	case consistencyConsistent:
+		return w.waitAndGetConsistentSnapshot(ctx, recursive, matchValues)
+	case consistencyNotOlderThan:
+		return w.waitAndGetLatestSnapshot(ctx, recursive, resourceVersion, matchValues)
+	default:
+		return nil, "", fmt.Errorf("unknown RV semantic: %s", semantic)
+	}
+}
+
+func (w *watchCache) waitAndGetExactSnapshot(ctx context.Context, resourceVersion uint64) (store.Snapshot, error) {
+	span := tracing.SpanFromContext(ctx)
+	w.RLock()
+	span.AddEvent("watchCache locked acquired")
+	defer w.RUnlock()
+	err := w.waitUntilFreshLocked(ctx, resourceVersion)
+	if err != nil {
+		return nil, err
+	}
+	span.AddEvent("watchCache fresh enough")
+
+	store, err := w.storage.GetExactSnapshotLocked(resourceVersion)
+	if err != nil {
+		span.AddEvent("GetExactSnapshotLocked failed", attribute.String("error", err.Error()))
+		return nil, err
+	}
+	span.AddEvent("GetExactSnapshotLocked success")
+	w.checkSnapshotResourceVersion(store, resourceVersion)
+	return store, nil
+}
+
+func (w *watchCache) waitAndGetConsistentSnapshot(ctx context.Context, recursive bool, matchValues []storage.MatchValue) (snap store.Snapshot, index string, err error) {
+	span := tracing.SpanFromContext(ctx)
+	resourceVersion, err := w.config.getCurrentRV(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	span.AddEvent("getCurrentRV success")
+	return w.waitAndGetLatestSnapshot(ctx, recursive, resourceVersion, matchValues)
+}
+
+func (w *watchCache) waitAndGetLatestSnapshot(ctx context.Context, recursive bool, minResourceVersion uint64, matchValues []storage.MatchValue) (snap store.Snapshot, index string, err error) {
+	if minResourceVersion == 0 {
+		snap, index := w.getLatestSnapshot(ctx, recursive, matchValues)
+		return snap, index, nil
+	}
+
+	span := tracing.SpanFromContext(ctx)
+	w.RLock()
+	span.AddEvent("watchCache locked acquired")
+	defer w.RUnlock()
+	err = w.waitUntilFreshLocked(ctx, minResourceVersion)
+	if err != nil {
+		return nil, "", err
+	}
+	span.AddEvent("watchCache fresh enough")
+	snap, index = w.getLatestSnapshot(ctx, recursive, matchValues)
+	w.checkSnapshotResourceVersion(snap, w.resourceVersion)
+	return snap, index, nil
+}
+
+func (w *watchCache) getLatestSnapshot(ctx context.Context, recursive bool, matchValues []storage.MatchValue) (snap store.Snapshot, index string) {
+	// Recursive expects key to be a prefix thus storage.PrepareKey ensures it has "/" suffix. Non-recursive expects key to be an exact match.
+	// For requests with selector matching single object, we expect the caller to set opts.Recursive=false and use the full key.
+	span := tracing.SpanFromContext(ctx)
+	if recursive {
+		// This isn't the place where we do "final filtering" - only some "prefiltering" is happening here. So the only
+		// requirement here is to NOT miss anything that should be returned. We can return as many non-matching items as we
+		// want - they will be filtered out later. The fact that we return less things is only further performance improvement.
+		// TODO: if multiple indexes match, return the one with the fewest items, so as to do as much filtering as possible.
+		for _, matchValue := range matchValues {
+			snap, err := w.storage.GetByIndexSnapshot(matchValue.IndexName, matchValue.Value)
+			if err == nil {
+				span.AddEvent("GetByIndexSnapshot success", attribute.String("index", matchValue.IndexName))
+				return snap, matchValue.IndexName
+			}
+			span.AddEvent("GetByIndexSnapshot fail", attribute.String("index", matchValue.IndexName), attribute.String("error", err.Error()))
+		}
+	}
+	snap = w.storage.LatestSnapshot()
+	span.AddEvent("LatestSnapshot success")
+	return snap, ""
+}
+
+func (w *watchCache) checkSnapshotResourceVersion(snap store.Snapshot, expectedRV uint64) {
+	if snap.ResourceVersion() == expectedRV {
+		return
+	}
+	klog.ErrorS(nil, "Watch cache snapshot resourceVersion mismatch", "group", w.config.groupResource.Group, "resource", w.config.groupResource.Resource, "snapshotResourceVersion", snap.ResourceVersion(), "expectedResourceVersion", expectedRV)
+	if consistency.PanicOnCacheInconsistency {
+		panic(fmt.Sprintf("Watch cache snapshot resourceVersion mismatch, group: %q, resource: %q, snapshotResourceVersion: %d, expectedResourceVersion: %d", w.config.groupResource.Group, w.config.groupResource.Resource, snap.ResourceVersion(), expectedRV))
+	}
+}
+
+func (w *watchCache) notFresh(resourceVersion uint64) bool {
+	w.RLock()
+	defer w.RUnlock()
+	return resourceVersion > w.resourceVersion
+}
+
+// WaitUntilFreshAndGet returns a pointers to <storeElement> object.
+func (w *watchCache) WaitUntilFreshAndGet(ctx context.Context, resourceVersion string, key string) (interface{}, bool, uint64, error) {
+	span := tracing.SpanFromContext(ctx)
+	var minResourceVersion uint64
+	var err error
+	if resourceVersion == "" {
+		minResourceVersion, err = w.config.getCurrentRV(ctx)
+	} else {
+		minResourceVersion, err = w.config.versioner.ParseResourceVersion(resourceVersion)
+	}
+	if err != nil {
+		return nil, false, 0, err
+	}
+	snap, _, err := w.waitAndGetLatestSnapshot(ctx, false, minResourceVersion, nil)
+	if err != nil {
+		return nil, false, 0, err
+	}
+	value, exists, err := snap.GetByKey(key)
+	if err != nil {
+		span.AddEvent("GetByKey failed", attribute.String("error", err.Error()))
+		return nil, false, 0, err
+	}
+	span.AddEvent("GetByKey success")
+	return value, exists, snap.ResourceVersion(), err
+}
+
+// Replace takes slice of runtime.Object as a parameter.
+func (w *watchCache) Replace(objs []interface{}, resourceVersion string) error {
+	version, err := w.config.versioner.ParseResourceVersion(resourceVersion)
+	if err != nil {
+		return err
+	}
+
+	toReplace := make([]*store.Element, 0, len(objs))
+	for _, obj := range objs {
+		object, ok := obj.(runtime.Object)
+		if !ok {
+			return fmt.Errorf("didn't get runtime.Object for replace: %#v", obj)
+		}
+		key, err := w.config.keyFunc(object)
+		if err != nil {
+			return fmt.Errorf("couldn't compute key: %v", err)
+		}
+		objLabels, objFields, err := w.config.getAttrsFunc(object)
+		if err != nil {
+			return err
+		}
+		toReplace = append(toReplace, &store.Element{
+			Key:    key,
+			Object: object,
+			Labels: objLabels,
+			Fields: objFields,
+		})
+	}
+
+	w.Lock()
+	defer w.Unlock()
+
+	// Ensure startIndex never decreases, so that existing watchCacheInterval
+	// instances get "invalid" errors if the try to download from the buffer
+	// using their own start/end indexes calculated from previous buffer
+	// content.
+
+	// Empty the cyclic buffer, ensuring startIndex doesn't decrease.
+	w.history.ResetLocked(version)
+
+	if err := w.storage.Replace(toReplace, version); err != nil {
+		return err
+	}
+	w.resourceVersion = version
+	if w.onReplace != nil {
+		w.onReplace()
+	}
+	w.freshness.broadcast()
+
+	metrics.RecordResourceVersion(w.config.groupResource, version)
+	klog.V(3).Infof("Replaced watchCache (rev: %v) ", resourceVersion)
+	return nil
+}
+
+func (w *watchCache) SetOnReplace(onReplace func()) {
+	w.Lock()
+	defer w.Unlock()
+	w.onReplace = onReplace
+}
+
+func (w *watchCache) Resync() error {
+	// Nothing to do
+	return nil
+}
+
+func (w *watchCache) getListResourceVersion() uint64 {
+	w.RLock()
+	defer w.RUnlock()
+	return w.history.listResourceVersion
+}
+
+func (w *watchCache) suggestedWatchChannelSize(indexExists, triggerUsed bool) int {
+	w.RLock()
+	defer w.RUnlock()
+	return w.history.suggestedWatchChannelSize(indexExists, triggerUsed)
+}
+
+// getAllEventsSinceLocked returns a watchCacheInterval that can be used to
+// retrieve events since a certain resourceVersion. This function assumes to
+// be called under the watchCache lock.
+func (w *watchCache) getAllEventsSinceLocked(ctx context.Context, resourceVersion uint64, key string, opts storage.ListOptions) (*watchCacheInterval, error) {
+	if opts.SendInitialEvents != nil && *opts.SendInitialEvents {
+		interval, _, err := w.getIntervalFromStoreLocked(ctx, key, opts)
+		return interval, err
+	}
+
+	if resourceVersion == 0 {
+		if opts.SendInitialEvents == nil {
+			// resourceVersion = 0 means that we don't require any specific starting point
+			// and we would like to start watching from ~now.
+			// However, to keep backward compatibility, we additionally need to return the
+			// current state and only then start watching from that point.
+			//
+			// TODO: In v2 api, we should stop returning the current state - #13969.
+			interval, _, err := w.getIntervalFromStoreLocked(ctx, key, opts)
+			return interval, err
+		}
+		// SendInitialEvents = false and resourceVersion = 0
+		// means that the request would like to start watching
+		// from Any resourceVersion
+		resourceVersion = w.resourceVersion
+	}
+
+	return w.history.GetIntervalLocked(resourceVersion, w.RWMutex.RLocker())
+}
+
+// getIntervalFromStoreLocked returns a watchCacheInterval
+// that covers the entire storage state.
+// This function assumes to be called under the watchCache lock.
+func (w *watchCache) getIntervalFromStoreLocked(ctx context.Context, key string, opts storage.ListOptions) (*watchCacheInterval, string, error) {
+	snapshot, index := w.getLatestSnapshot(ctx, opts.Recursive, opts.Predicate.MatcherIndex(ctx))
+	w.checkSnapshotResourceVersion(snapshot, w.resourceVersion)
+	return newCacheIntervalFromLazySnapshot(w.resourceVersion, snapshot, key, opts.Recursive), index, nil
+}
