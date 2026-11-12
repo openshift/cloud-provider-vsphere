@@ -132,6 +132,12 @@ func Convert_v1beta1_ControlPlaneClass_To_v1beta2_ControlPlaneClass(in *ControlP
 				TimeoutSeconds: clusterv1.ConvertToSeconds(&c.Timeout),
 			})
 		}
+		for _, c := range in.MachineHealthCheck.UnhealthyExpressions {
+			out.HealthCheck.Checks.UnhealthyExpressions = append(out.HealthCheck.Checks.UnhealthyExpressions, clusterv1.UnhealthyExpression{
+				Expression: c.Expression,
+				Message:    c.Message,
+			})
+		}
 		out.HealthCheck.Checks.NodeStartupTimeoutSeconds = clusterv1.ConvertToSeconds(in.MachineHealthCheck.NodeStartupTimeout)
 		out.HealthCheck.Remediation.TriggerIf.UnhealthyLessThanOrEqualTo = in.MachineHealthCheck.MaxUnhealthy
 		out.HealthCheck.Remediation.TriggerIf.UnhealthyInRange = deref(in.MachineHealthCheck.UnhealthyRange, "")
@@ -177,6 +183,12 @@ func Convert_v1beta2_ControlPlaneClass_To_v1beta1_ControlPlaneClass(in *clusterv
 				Type:    c.Type,
 				Status:  c.Status,
 				Timeout: deref(clusterv1.ConvertFromSeconds(c.TimeoutSeconds), metav1.Duration{}),
+			})
+		}
+		for _, c := range in.HealthCheck.Checks.UnhealthyExpressions {
+			out.MachineHealthCheck.UnhealthyExpressions = append(out.MachineHealthCheck.UnhealthyExpressions, UnhealthyExpression{
+				Expression: c.Expression,
+				Message:    c.Message,
 			})
 		}
 		out.MachineHealthCheck.NodeStartupTimeout = clusterv1.ConvertFromSeconds(in.HealthCheck.Checks.NodeStartupTimeoutSeconds)
@@ -234,6 +246,12 @@ func Convert_v1beta1_ControlPlaneTopology_To_v1beta2_ControlPlaneTopology(in *Co
 				TimeoutSeconds: clusterv1.ConvertToSeconds(&c.Timeout),
 			})
 		}
+		for _, c := range in.MachineHealthCheck.UnhealthyExpressions {
+			out.HealthCheck.Checks.UnhealthyExpressions = append(out.HealthCheck.Checks.UnhealthyExpressions, clusterv1.UnhealthyExpression{
+				Expression: c.Expression,
+				Message:    c.Message,
+			})
+		}
 		out.HealthCheck.Checks.NodeStartupTimeoutSeconds = clusterv1.ConvertToSeconds(in.MachineHealthCheck.NodeStartupTimeout)
 		out.HealthCheck.Remediation.TriggerIf.UnhealthyLessThanOrEqualTo = in.MachineHealthCheck.MaxUnhealthy
 		out.HealthCheck.Remediation.TriggerIf.UnhealthyInRange = deref(in.MachineHealthCheck.UnhealthyRange, "")
@@ -275,6 +293,12 @@ func Convert_v1beta2_ControlPlaneTopology_To_v1beta1_ControlPlaneTopology(in *cl
 				Type:    c.Type,
 				Status:  c.Status,
 				Timeout: deref(clusterv1.ConvertFromSeconds(c.TimeoutSeconds), metav1.Duration{}),
+			})
+		}
+		for _, c := range in.HealthCheck.Checks.UnhealthyExpressions {
+			out.MachineHealthCheck.UnhealthyExpressions = append(out.MachineHealthCheck.UnhealthyExpressions, UnhealthyExpression{
+				Expression: c.Expression,
+				Message:    c.Message,
 			})
 		}
 		out.MachineHealthCheck.NodeStartupTimeout = clusterv1.ConvertFromSeconds(in.HealthCheck.Checks.NodeStartupTimeoutSeconds)
@@ -335,6 +359,12 @@ func Convert_v1beta1_MachineDeploymentClass_To_v1beta2_MachineDeploymentClass(in
 				Type:           c.Type,
 				Status:         c.Status,
 				TimeoutSeconds: clusterv1.ConvertToSeconds(&c.Timeout),
+			})
+		}
+		for _, c := range in.MachineHealthCheck.UnhealthyExpressions {
+			out.HealthCheck.Checks.UnhealthyExpressions = append(out.HealthCheck.Checks.UnhealthyExpressions, clusterv1.UnhealthyExpression{
+				Expression: c.Expression,
+				Message:    c.Message,
 			})
 		}
 		out.HealthCheck.Checks.NodeStartupTimeoutSeconds = clusterv1.ConvertToSeconds(in.MachineHealthCheck.NodeStartupTimeout)
@@ -417,6 +447,12 @@ func Convert_v1beta2_MachineDeploymentClass_To_v1beta1_MachineDeploymentClass(in
 				Timeout: deref(clusterv1.ConvertFromSeconds(c.TimeoutSeconds), metav1.Duration{}),
 			})
 		}
+		for _, c := range in.HealthCheck.Checks.UnhealthyExpressions {
+			out.MachineHealthCheck.UnhealthyExpressions = append(out.MachineHealthCheck.UnhealthyExpressions, UnhealthyExpression{
+				Expression: c.Expression,
+				Message:    c.Message,
+			})
+		}
 		out.MachineHealthCheck.NodeStartupTimeout = clusterv1.ConvertFromSeconds(in.HealthCheck.Checks.NodeStartupTimeoutSeconds)
 		out.MachineHealthCheck.MaxUnhealthy = in.HealthCheck.Remediation.TriggerIf.UnhealthyLessThanOrEqualTo
 		if in.HealthCheck.Remediation.TriggerIf.UnhealthyInRange != "" {
@@ -477,6 +513,12 @@ func Convert_v1beta1_MachineDeploymentTopology_To_v1beta2_MachineDeploymentTopol
 				Type:           c.Type,
 				Status:         c.Status,
 				TimeoutSeconds: clusterv1.ConvertToSeconds(&c.Timeout),
+			})
+		}
+		for _, c := range in.MachineHealthCheck.UnhealthyExpressions {
+			out.HealthCheck.Checks.UnhealthyExpressions = append(out.HealthCheck.Checks.UnhealthyExpressions, clusterv1.UnhealthyExpression{
+				Expression: c.Expression,
+				Message:    c.Message,
 			})
 		}
 		out.HealthCheck.Checks.NodeStartupTimeoutSeconds = clusterv1.ConvertToSeconds(in.MachineHealthCheck.NodeStartupTimeout)
@@ -550,6 +592,12 @@ func Convert_v1beta2_MachineDeploymentTopology_To_v1beta1_MachineDeploymentTopol
 				Type:    c.Type,
 				Status:  c.Status,
 				Timeout: deref(clusterv1.ConvertFromSeconds(c.TimeoutSeconds), metav1.Duration{}),
+			})
+		}
+		for _, c := range in.HealthCheck.Checks.UnhealthyExpressions {
+			out.MachineHealthCheck.UnhealthyExpressions = append(out.MachineHealthCheck.UnhealthyExpressions, UnhealthyExpression{
+				Expression: c.Expression,
+				Message:    c.Message,
 			})
 		}
 		out.MachineHealthCheck.NodeStartupTimeout = clusterv1.ConvertFromSeconds(in.HealthCheck.Checks.NodeStartupTimeoutSeconds)
@@ -768,6 +816,7 @@ func Convert_v1beta2_ClusterStatus_To_v1beta1_ClusterStatus(in *clusterv1.Cluste
 			ReadyReplicas:     in.ControlPlane.ReadyReplicas,
 			AvailableReplicas: in.ControlPlane.AvailableReplicas,
 			Versions:          statusVersionsFromV1Beta2(in.ControlPlane.Versions),
+			UpgradePlan:       statusUpgradePlaneFromV1Beta2(in.ControlPlane.UpgradePlan),
 		}
 	}
 	if in.Workers != nil {
@@ -778,6 +827,7 @@ func Convert_v1beta2_ClusterStatus_To_v1beta1_ClusterStatus(in *clusterv1.Cluste
 			ReadyReplicas:     in.Workers.ReadyReplicas,
 			AvailableReplicas: in.Workers.AvailableReplicas,
 			Versions:          statusVersionsFromV1Beta2(in.Workers.Versions),
+			UpgradePlan:       statusUpgradePlaneFromV1Beta2(in.Workers.UpgradePlan),
 		}
 	}
 	return nil
@@ -817,6 +867,7 @@ func Convert_v1beta1_ClusterStatus_To_v1beta2_ClusterStatus(in *ClusterStatus, o
 				ReadyReplicas:     in.V1Beta2.ControlPlane.ReadyReplicas,
 				AvailableReplicas: in.V1Beta2.ControlPlane.AvailableReplicas,
 				Versions:          statusVersionsToV1Beta2(in.V1Beta2.ControlPlane.Versions),
+				UpgradePlan:       statusUpgradePlanToV1Beta2(in.V1Beta2.ControlPlane.UpgradePlan),
 			}
 		}
 		if in.V1Beta2.Workers != nil {
@@ -827,6 +878,7 @@ func Convert_v1beta1_ClusterStatus_To_v1beta2_ClusterStatus(in *ClusterStatus, o
 				ReadyReplicas:     in.V1Beta2.Workers.ReadyReplicas,
 				AvailableReplicas: in.V1Beta2.Workers.AvailableReplicas,
 				Versions:          statusVersionsToV1Beta2(in.V1Beta2.Workers.Versions),
+				UpgradePlan:       statusUpgradePlanToV1Beta2(in.V1Beta2.Workers.UpgradePlan),
 			}
 		}
 	}
@@ -981,6 +1033,12 @@ func Convert_v1beta1_MachineHealthCheckSpec_To_v1beta2_MachineHealthCheckSpec(in
 			TimeoutSeconds: clusterv1.ConvertToSeconds(&c.Timeout),
 		})
 	}
+	for _, c := range in.UnhealthyExpressions {
+		out.Checks.UnhealthyExpressions = append(out.Checks.UnhealthyExpressions, clusterv1.UnhealthyExpression{
+			Expression: c.Expression,
+			Message:    c.Message,
+		})
+	}
 	out.Checks.NodeStartupTimeoutSeconds = clusterv1.ConvertToSeconds(in.NodeStartupTimeout)
 	out.Remediation.TriggerIf.UnhealthyLessThanOrEqualTo = in.MaxUnhealthy
 	out.Remediation.TriggerIf.UnhealthyInRange = deref(in.UnhealthyRange, "")
@@ -1010,6 +1068,12 @@ func Convert_v1beta2_MachineHealthCheckSpec_To_v1beta1_MachineHealthCheckSpec(in
 			Type:    c.Type,
 			Status:  c.Status,
 			Timeout: deref(clusterv1.ConvertFromSeconds(c.TimeoutSeconds), metav1.Duration{}),
+		})
+	}
+	for _, c := range in.Checks.UnhealthyExpressions {
+		out.UnhealthyExpressions = append(out.UnhealthyExpressions, UnhealthyExpression{
+			Expression: c.Expression,
+			Message:    c.Message,
 		})
 	}
 	out.NodeStartupTimeout = clusterv1.ConvertFromSeconds(in.Checks.NodeStartupTimeoutSeconds)
@@ -1841,6 +1905,19 @@ func statusVersionsFromV1Beta2(in []clusterv1.StatusVersion) []StatusVersion {
 	return out
 }
 
+func statusUpgradePlaneFromV1Beta2(in []clusterv1.StatusUpgradePlanVersion) []StatusUpgradePlanVersion {
+	if in == nil {
+		return nil
+	}
+	out := make([]StatusUpgradePlanVersion, 0, len(in))
+	for _, v := range in {
+		out = append(out, StatusUpgradePlanVersion{
+			Version: v.Version,
+		})
+	}
+	return out
+}
+
 func statusVersionsToV1Beta2(in []StatusVersion) []clusterv1.StatusVersion {
 	if in == nil {
 		return nil
@@ -1850,6 +1927,19 @@ func statusVersionsToV1Beta2(in []StatusVersion) []clusterv1.StatusVersion {
 		out = append(out, clusterv1.StatusVersion{
 			Version:  v.Version,
 			Replicas: v.Replicas,
+		})
+	}
+	return out
+}
+
+func statusUpgradePlanToV1Beta2(in []StatusUpgradePlanVersion) []clusterv1.StatusUpgradePlanVersion {
+	if in == nil {
+		return nil
+	}
+	out := make([]clusterv1.StatusUpgradePlanVersion, 0, len(in))
+	for _, v := range in {
+		out = append(out, clusterv1.StatusUpgradePlanVersion{
+			Version: v.Version,
 		})
 	}
 	return out

@@ -23,6 +23,11 @@ import (
 )
 
 const (
+	// MachinePoolFinalizer allows ReconcileDockerMachinePool to clean up resources.
+	MachinePoolFinalizer = "dockermachinepool.infrastructure.cluster.x-k8s.io"
+)
+
+const (
 	// ReplicasReadyCondition reports an aggregate of current status of the replicas controlled by the MachinePool.
 	ReplicasReadyCondition string = "ReplicasReady"
 
@@ -49,7 +54,7 @@ const (
 	DevMachinePoolReadyUnknownReason = clusterv1.ReadyUnknownReason
 )
 
-// +kubebuilder:resource:path=devmachinepools,scope=Namespaced,categories=cluster-api
+// +kubebuilder:resource:path=devmachinepools,shortName=devmp,scope=Namespaced,categories=cluster-api
 // +kubebuilder:storageversion
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -73,7 +78,7 @@ type DevMachinePoolList struct {
 	Items           []DevMachinePool `json:"items"`
 }
 
-// DockerMachinePoolBackendSpec defines the desired state of DockerMachine.
+// DockerMachinePoolBackendSpec defines the desired state of a DevMachinePool's docker backend.
 type DockerMachinePoolBackendSpec struct {
 	// CustomImage allows customizing the container image that is used for
 	// running the machine
@@ -95,10 +100,16 @@ type DockerMachinePoolBackendSpec struct {
 type DevMachinePoolSpec struct {
 	// ProviderID is the identification ID of the Machine Pool
 	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
 	ProviderID string `json:"providerID,omitempty"`
 
 	// ProviderIDList is the list of identification IDs of machine instances managed by this Machine Pool
 	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=10000
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=512
 	ProviderIDList []string `json:"providerIDList,omitempty"`
 
 	// backend contains the details used to build a replica machine within the Machine Pool
@@ -123,9 +134,10 @@ type DevMachinePoolStatus struct {
 	// +kubebuilder:validation:MaxItems=32
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Ready denotes that the machine pool is ready
+	// initialization provides observations of the DevMachinePool initialization process.
+	// NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial MachinePool provisioning.
 	// +optional
-	Ready bool `json:"ready"`
+	Initialization DevMachinePoolInitializationStatus `json:"initialization,omitempty,omitzero"`
 
 	// Replicas is the most recently observed number of replicas.
 	// +optional
@@ -142,6 +154,15 @@ type DevMachinePoolStatus struct {
 	// Instances contains the status for each instance in the pool.
 	// +optional
 	Instances []DevMachinePoolInstanceStatus `json:"instances,omitempty"`
+}
+
+// DevMachinePoolInitializationStatus provides observations of the DevMachinePool initialization process.
+// +kubebuilder:validation:MinProperties=1
+type DevMachinePoolInitializationStatus struct {
+	// provisioned is true when the infrastructure provider reports that the MachinePool's infrastructure is fully provisioned.
+	// NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial MachinePool provisioning.
+	// +optional
+	Provisioned *bool `json:"provisioned,omitempty"`
 }
 
 // DevMachinePoolInstanceStatus contains status information about a DevMachinePool instances.

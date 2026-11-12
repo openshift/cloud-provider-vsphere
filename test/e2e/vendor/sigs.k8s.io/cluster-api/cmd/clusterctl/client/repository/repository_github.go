@@ -29,8 +29,8 @@ import (
 	"time"
 
 	"github.com/blang/semver/v4"
-	"github.com/google/go-github/v82/github"
-	"github.com/pkg/errors"
+	"github.com/google/go-github/v92/github"
+	pkgerrors "github.com/pkg/errors"
 	"golang.org/x/oauth2"
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -50,8 +50,8 @@ const (
 )
 
 var (
-	errNotFound  = errors.New("404 Not Found")
-	errRateLimit = errors.New("rate limit for github api has been reached. Please wait one hour or get a personal API token and assign it to the GITHUB_TOKEN environment variable")
+	errNotFound  = pkgerrors.New("404 Not Found")
+	errRateLimit = pkgerrors.New("rate limit for github api has been reached. Please wait one hour or get a personal API token and assign it to the GITHUB_TOKEN environment variable")
 
 	// Caches used to limit the number of GitHub API calls.
 
@@ -112,7 +112,7 @@ func (g *gitHubRepository) GetVersions(ctx context.Context) ([]string, error) {
 
 	goProxyClient, err := g.getGoproxyClient(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "get versions client")
+		return nil, pkgerrors.Wrap(err, "get versions client")
 	}
 
 	var versions []string
@@ -137,7 +137,7 @@ func (g *gitHubRepository) GetVersions(ctx context.Context) ([]string, error) {
 	if goProxyClient == nil || err != nil {
 		versions, err = g.getVersions(ctx)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get repository versions")
+			return nil, pkgerrors.Wrapf(err, "failed to get repository versions")
 		}
 	}
 
@@ -180,18 +180,18 @@ func (g *gitHubRepository) GetFile(ctx context.Context, version, path string) ([
 
 	release, err := g.getReleaseByTag(ctx, version)
 	if err != nil {
-		if errors.Is(err, errNotFound) {
+		if pkgerrors.Is(err, errNotFound) {
 			// If it was ErrNotFound, then there is no release yet for the resolved tag.
 			// Ref: https://github.com/kubernetes-sigs/cluster-api/issues/7889
-			return nil, errors.Wrapf(err, "release not found for version %s, please retry later or set \"GOPROXY=off\" to get the current stable release", version)
+			return nil, pkgerrors.Wrapf(err, "release not found for version %s, please retry later or set \"GOPROXY=off\" to get the current stable release", version)
 		}
-		return nil, errors.Wrapf(err, "failed to get GitHub release %s", version)
+		return nil, pkgerrors.Wrapf(err, "failed to get GitHub release %s", version)
 	}
 
 	// Download files from the release.
 	files, err := g.downloadFilesFromRelease(ctx, release, path)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to download files from GitHub release %s", version)
+		return nil, pkgerrors.Wrapf(err, "failed to download files from GitHub release %s", version)
 	}
 
 	cacheFiles[cacheID] = files
@@ -201,24 +201,24 @@ func (g *gitHubRepository) GetFile(ctx context.Context, version, path string) ([
 // NewGitHubRepository returns a gitHubRepository implementation.
 func NewGitHubRepository(ctx context.Context, providerConfig config.Provider, configVariablesClient config.VariablesClient, opts ...githubRepositoryOption) (Repository, error) {
 	if configVariablesClient == nil {
-		return nil, errors.New("invalid arguments: configVariablesClient can't be nil")
+		return nil, pkgerrors.New("invalid arguments: configVariablesClient can't be nil")
 	}
 
 	rURL, err := url.Parse(providerConfig.URL())
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid url")
+		return nil, pkgerrors.Wrap(err, "invalid url")
 	}
 
 	// Check if the url is a github repository
 	if rURL.Scheme != httpsScheme || rURL.Host != githubDomain {
-		return nil, errors.New("invalid url: a GitHub repository url should start with https://github.com")
+		return nil, pkgerrors.New("invalid url: a GitHub repository url should start with https://github.com")
 	}
 
 	// Check if the path is in the expected format,
 	// url's path has an extra leading slash at the end which we need to clean up before splitting.
 	urlSplit := strings.Split(strings.TrimPrefix(rURL.Path, "/"), "/")
 	if len(urlSplit) < 5 || urlSplit[2] != githubReleaseRepository {
-		return nil, errors.Errorf(
+		return nil, pkgerrors.Errorf(
 			"invalid url: a GitHub repository url should be in the form https://github.com/{owner}/{Repository}/%s/{latest|version-tag}/{componentsClient.yaml}",
 			githubReleaseRepository,
 		)
@@ -257,7 +257,7 @@ func NewGitHubRepository(ctx context.Context, providerConfig config.Provider, co
 	if defaultVersion == githubLatestReleaseLabel {
 		repo.defaultVersion, err = latestContractRelease(ctx, repo, clusterv1.GroupVersion.Version)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to get latest release")
+			return nil, pkgerrors.Wrap(err, "failed to get latest release")
 		}
 	}
 
@@ -272,11 +272,15 @@ func getComponentsPath(path string, rootPath string) string {
 }
 
 // getClient returns a github API client.
-func (g *gitHubRepository) getClient() *github.Client {
+func (g *gitHubRepository) getClient() (*github.Client, error) {
 	if g.injectClient != nil {
-		return g.injectClient
+		return g.injectClient, nil
 	}
-	return github.NewClient(g.authenticatingHTTPClient)
+	var opts []github.ClientOptionsFunc
+	if g.authenticatingHTTPClient != nil {
+		opts = append(opts, github.WithHTTPClient(g.authenticatingHTTPClient))
+	}
+	return github.NewClient(opts...)
 }
 
 // getGoproxyClient returns a go proxy client.
@@ -307,7 +311,10 @@ func (g *gitHubRepository) setClientToken(ctx context.Context, token string) {
 
 // getVersions returns all the release versions for a github repository.
 func (g *gitHubRepository) getVersions(ctx context.Context) ([]string, error) {
-	client := g.getClient()
+	client, err := g.getClient()
+	if err != nil {
+		return nil, err
+	}
 
 	// Get all the releases.
 	// NB. currently Github API does not support result ordering, so it not possible to limit results
@@ -320,7 +327,7 @@ func (g *gitHubRepository) getVersions(ctx context.Context) ([]string, error) {
 		if listReleasesErr != nil {
 			retryError = g.handleGithubErr(listReleasesErr, "failed to get the list of releases")
 			// Return immediately if we are rate limited.
-			if errors.Is(retryError, errRateLimit) {
+			if pkgerrors.Is(retryError, errRateLimit) {
 				return false, retryError
 			}
 			return false, nil
@@ -335,7 +342,7 @@ func (g *gitHubRepository) getVersions(ctx context.Context) ([]string, error) {
 			if listReleasesErr != nil {
 				retryError = g.handleGithubErr(listReleasesErr, "failed to get the list of releases")
 				// Return immediately if we are rate limited.
-				if errors.Is(retryError, errRateLimit) {
+				if pkgerrors.Is(retryError, errRateLimit) {
 					return false, retryError
 				}
 				return false, nil
@@ -350,10 +357,10 @@ func (g *gitHubRepository) getVersions(ctx context.Context) ([]string, error) {
 	}
 	versions := []string{}
 	for _, r := range allReleases {
-		if r.TagName == nil {
+		if r.TagName == "" {
 			continue
 		}
-		tagName := *r.TagName
+		tagName := r.TagName
 		if _, err := version.ParseSemantic(tagName); err != nil {
 			// Discard releases with tags that are not a valid semantic versions (the user can point explicitly to such releases).
 			continue
@@ -371,7 +378,10 @@ func (g *gitHubRepository) getReleaseByTag(ctx context.Context, tag string) (*gi
 		return release, nil
 	}
 
-	client := g.getClient()
+	client, err := g.getClient()
+	if err != nil {
+		return nil, err
+	}
 
 	var release *github.RepositoryRelease
 	var retryError error
@@ -381,11 +391,11 @@ func (g *gitHubRepository) getReleaseByTag(ctx context.Context, tag string) (*gi
 		if getReleasesErr != nil {
 			retryError = g.handleGithubErr(getReleasesErr, "failed to read release %q", tag)
 			// Return immediately if not found
-			if errors.Is(retryError, errNotFound) {
+			if pkgerrors.Is(retryError, errNotFound) {
 				return false, retryError
 			}
 			// Return immediately if we are rate limited.
-			if errors.Is(retryError, errRateLimit) {
+			if pkgerrors.Is(retryError, errRateLimit) {
 				return false, retryError
 			}
 			return false, nil
@@ -409,7 +419,7 @@ func (g *gitHubRepository) httpGetFilesFromRelease(ctx context.Context, version,
 	_ = wait.PollUntilContextTimeout(ctx, retryableOperationInterval, retryableOperationTimeout, true, func(context.Context) (bool, error) {
 		resp, err := http.Get(downloadURL) //nolint:gosec,noctx
 		if err != nil {
-			retryError = errors.Wrap(err, "error sending request")
+			retryError = pkgerrors.Wrap(err, "error sending request")
 			return false, nil
 		}
 		defer resp.Body.Close()
@@ -421,13 +431,13 @@ func (g *gitHubRepository) httpGetFilesFromRelease(ctx context.Context, version,
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			retryError = errors.Errorf("error getting file, status code: %d", resp.StatusCode)
+			retryError = pkgerrors.Errorf("error getting file, status code: %d", resp.StatusCode)
 			return false, nil
 		}
 
 		content, err = io.ReadAll(resp.Body)
 		if err != nil {
-			retryError = errors.Wrap(err, "error reading response body")
+			retryError = pkgerrors.Wrap(err, "error reading response body")
 			return false, nil
 		}
 
@@ -442,7 +452,10 @@ func (g *gitHubRepository) httpGetFilesFromRelease(ctx context.Context, version,
 
 // downloadFilesFromRelease download a file from release.
 func (g *gitHubRepository) downloadFilesFromRelease(ctx context.Context, release *github.RepositoryRelease, fileName string) ([]byte, error) {
-	client := g.getClient()
+	client, err := g.getClient()
+	if err != nil {
+		return nil, err
+	}
 	absoluteFileName := filepath.Join(g.rootPath, fileName)
 
 	// Search for the file into the release assets, retrieving the asset id.
@@ -454,7 +467,7 @@ func (g *gitHubRepository) downloadFilesFromRelease(ctx context.Context, release
 		}
 	}
 	if assetID == nil {
-		return nil, errors.Errorf("failed to get file %q from %q release", fileName, *release.TagName)
+		return nil, pkgerrors.Errorf("failed to get file %q from %q release", fileName, release.TagName)
 	}
 
 	var reader io.ReadCloser
@@ -465,9 +478,9 @@ func (g *gitHubRepository) downloadFilesFromRelease(ctx context.Context, release
 		var downloadReleaseError error
 		reader, redirect, downloadReleaseError = client.Repositories.DownloadReleaseAsset(ctx, g.owner, g.repository, *assetID, http.DefaultClient)
 		if downloadReleaseError != nil {
-			retryError = g.handleGithubErr(downloadReleaseError, "failed to download file %q from %q release", *release.TagName, fileName)
+			retryError = g.handleGithubErr(downloadReleaseError, "failed to download file %q from %q release", release.TagName, fileName)
 			// Return immediately if we are rate limited.
-			if errors.Is(retryError, errRateLimit) {
+			if pkgerrors.Is(retryError, errRateLimit) {
 				return false, retryError
 			}
 			return false, nil
@@ -476,7 +489,7 @@ func (g *gitHubRepository) downloadFilesFromRelease(ctx context.Context, release
 
 		if redirect != "" {
 			// NOTE: DownloadReleaseAsset should not return a redirect address when used with the DefaultClient.
-			retryError = errors.New("unexpected redirect while downloading the release asset")
+			retryError = pkgerrors.New("unexpected redirect while downloading the release asset")
 			return true, retryError
 		}
 
@@ -484,7 +497,7 @@ func (g *gitHubRepository) downloadFilesFromRelease(ctx context.Context, release
 		var err error
 		content, err = io.ReadAll(reader)
 		if err != nil {
-			retryError = errors.Wrapf(err, "failed to read downloaded file %q from %q release", *release.TagName, fileName)
+			retryError = pkgerrors.Wrapf(err, "failed to read downloaded file %q from %q release", release.TagName, fileName)
 			return false, nil
 		}
 
@@ -505,7 +518,7 @@ func (g *gitHubRepository) handleGithubErr(err error, message string, args ...in
 	}
 
 	var ghErr *github.ErrorResponse
-	if errors.As(err, &ghErr) && ghErr.Response.StatusCode == http.StatusNotFound {
+	if pkgerrors.As(err, &ghErr) && ghErr.Response.StatusCode == http.StatusNotFound {
 		return errNotFound
 	}
 

@@ -19,7 +19,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
+	"unsafe"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,8 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/resourceversion"
-	kcache "k8s.io/client-go/tools/cache"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
+	toolscache "k8s.io/client-go/tools/cache"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -56,7 +58,7 @@ type consistencyError struct {
 var _ consistencyStore = &realConsistencyStore{}
 
 type informerGetter interface {
-	GetInformer(ctx context.Context, obj client.Object, opts ...cache.InformerGetOption) (cache.Informer, error)
+	GetInformer(ctx context.Context, obj client.Object, opts ...ctrlcache.InformerGetOption) (ctrlcache.Informer, error)
 }
 
 type realConsistencyStore struct {
@@ -67,18 +69,20 @@ type realConsistencyStore struct {
 	writes map[types.NamespacedName]*ownerRecord
 
 	storesLock sync.RWMutex
-	stores     map[GroupVersionKindType]kcache.Store
+	stores     map[GroupVersionKindType]toolscache.Store
 
 	scheme         *runtime.Scheme
 	informerGetter informerGetter
+	dynamicCache   DynamicCache
 }
 
-func newConsistencyStore(scheme *runtime.Scheme, cache informerGetter) *realConsistencyStore {
+func newConsistencyStore(scheme *runtime.Scheme, cache informerGetter, dynamicCache DynamicCache) *realConsistencyStore {
 	return &realConsistencyStore{
 		writes:         map[types.NamespacedName]*ownerRecord{},
-		stores:         map[GroupVersionKindType]kcache.Store{},
+		stores:         map[GroupVersionKindType]toolscache.Store{},
 		scheme:         scheme,
 		informerGetter: cache,
+		dynamicCache:   dynamicCache,
 	}
 }
 
@@ -168,6 +172,9 @@ var (
 
 	// ObjectTypeStructured is the type of an object for a regular structured object.
 	ObjectTypeStructured ObjectType = "Structured"
+
+	// ObjectTypeDynamicCacheStructured is the type of an object for a structured object in a dynamic cache.
+	ObjectTypeDynamicCacheStructured ObjectType = "DynamicCacheStructured"
 )
 
 // GroupVersionKindType described the GVK and type of an object.
@@ -185,6 +192,14 @@ func StructuredObject(gv schema.GroupVersion, kind string) GroupVersionKindType 
 			Kind:    kind,
 		},
 		Type: ObjectTypeStructured,
+	}
+}
+
+// DynamicCacheStructuredObject is a util that allows to create a GroupVersionKindType for a structured object in a dynamic cache.
+func DynamicCacheStructuredObject(gvk schema.GroupVersionKind) GroupVersionKindType {
+	return GroupVersionKindType{
+		GroupVersionKind: gvk,
+		Type:             ObjectTypeDynamicCacheStructured,
 	}
 }
 
@@ -263,7 +278,7 @@ func (w *ownerRecord) EnsureReady(ctx context.Context, c *realConsistencyStore) 
 	return errs, nil
 }
 
-func getStore(ctx context.Context, c *realConsistencyStore, gvkt GroupVersionKindType) (kcache.Store, error) {
+func getStore(ctx context.Context, c *realConsistencyStore, gvkt GroupVersionKindType) (toolscache.Store, error) {
 	c.storesLock.RLock()
 	store, exists := c.stores[gvkt]
 	c.storesLock.RUnlock()
@@ -281,37 +296,115 @@ func getStore(ctx context.Context, c *realConsistencyStore, gvkt GroupVersionKin
 		return store, nil
 	}
 
-	var obj client.Object
-	switch gvkt.Type {
-	case ObjectTypeUnstructured:
-		obj = &unstructured.Unstructured{}
-		obj.GetObjectKind().SetGroupVersionKind(gvkt.GroupVersionKind)
-	case ObjectTypePartialObjectMetadata:
-		obj = &metav1.PartialObjectMetadata{}
-		obj.GetObjectKind().SetGroupVersionKind(gvkt.GroupVersionKind)
-	case ObjectTypeStructured:
-		runtimeObj, err := c.scheme.New(gvkt.GroupVersionKind)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create %s object: %w", gvkt.Kind, err)
+	var sharedIndexInformer toolscache.SharedIndexInformer
+	if gvkt.Type == ObjectTypeDynamicCacheStructured {
+		if c.dynamicCache == nil {
+			return nil, fmt.Errorf("failed to create %s informer: DynamicCache not configured", gvkt.Kind)
 		}
-		var ok bool
-		obj, ok = runtimeObj.(client.Object)
-		if !ok {
-			return nil, fmt.Errorf("failed to cast %s object to client.Object: %w", gvkt.Kind, err)
-		}
-	}
 
-	// Note: This creates the informer if it doesn't exist already, but it doesn't  wait for the cache to sync.
-	informer, err := c.informerGetter.GetInformer(ctx, obj, cache.BlockUntilSynced(false))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create %s informer: %w", gvkt.Kind, err)
-	}
-	sharedIndexInformer, ok := informer.(kcache.SharedIndexInformer)
-	if !ok {
-		// Note: This should never happen as controller-runtime only uses SharedIndexInformer.
-		return nil, fmt.Errorf("failed to cast %s informer to SharedIndexInformer", gvkt.Kind)
+		dc, exists := c.dynamicCache.GetCache(ctx, gvkt.GroupVersionKind)
+		if !exists {
+			return nil, fmt.Errorf("failed to create %s informer: DynamicCache does not have a corresponding Cache", gvkt.Kind)
+		}
+
+		// Note: This creates the informer if it doesn't exist already, but it doesn't  wait for the cache to sync.
+		// Note: Using GetInformerForKind instead of GetInformer because we cannot create an obj because c.scheme does
+		// not contain the type we need. GetInformerForKind will create the object internally instead
+		// using the cache's own scheme, which has the required type.
+		informer, err := dc.GetInformerForKind(ctx, gvkt.GroupVersionKind, ctrlcache.BlockUntilSynced(false))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create %s informer: %w", gvkt.Kind, err)
+		}
+		sharedIndexInformer, err = toSharedIndexInformer(informer, gvkt.Kind)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var obj client.Object
+		switch gvkt.Type {
+		case ObjectTypeUnstructured:
+			obj = &unstructured.Unstructured{}
+			obj.GetObjectKind().SetGroupVersionKind(gvkt.GroupVersionKind)
+		case ObjectTypePartialObjectMetadata:
+			obj = &metav1.PartialObjectMetadata{}
+			obj.GetObjectKind().SetGroupVersionKind(gvkt.GroupVersionKind)
+		case ObjectTypeStructured:
+			runtimeObj, err := c.scheme.New(gvkt.GroupVersionKind)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create %s object: %w", gvkt.Kind, err)
+			}
+			var ok bool
+			obj, ok = runtimeObj.(client.Object)
+			if !ok {
+				return nil, fmt.Errorf("failed to cast %s object to client.Object: %w", gvkt.Kind, err)
+			}
+		}
+
+		// Note: This creates the informer if it doesn't exist already, but it doesn't  wait for the cache to sync.
+		informer, err := c.informerGetter.GetInformer(ctx, obj, ctrlcache.BlockUntilSynced(false))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create %s informer: %w", gvkt.Kind, err)
+		}
+		sharedIndexInformer, err = toSharedIndexInformer(informer, gvkt.Kind)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	c.stores[gvkt] = sharedIndexInformer.GetStore()
 	return c.stores[gvkt], nil
+}
+
+// toSharedIndexInformer converts a ctrlcache.Informer to a toolscache.SharedIndexInformer.
+// Usually the informer is a toolscache.SharedIndexInformer, but when the cache is configured to
+// watch a specific namespace (e.g. via cache.Options.DefaultNamespaces),
+// controller-runtime instead returns a *cache.multiNamespaceInformer, an unexported type that
+// wraps one SharedIndexInformer per namespace but doesn't itself implement SharedIndexInformer.
+// Since controller-runtime doesn't expose a way to get at those per-namespace informers, we use
+// reflection to pull them out of the unexported namespaceToInformer field.
+// Controller-runtime issue: https://github.com/kubernetes-sigs/controller-runtime/issues/3607.
+func toSharedIndexInformer(informer ctrlcache.Informer, kind string) (toolscache.SharedIndexInformer, error) {
+	if sharedIndexInformer, ok := informer.(toolscache.SharedIndexInformer); ok {
+		return sharedIndexInformer, nil
+	}
+
+	v := reflect.ValueOf(informer)
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("failed to convert %s informer to SharedIndexInformer: informer is not a struct", kind)
+	}
+
+	field := v.FieldByName("namespaceToInformer") // Name of the field that holds informers in multiNamespaceInformer.
+	if !field.IsValid() || field.Kind() != reflect.Map {
+		return nil, fmt.Errorf("failed to convert %s informer to SharedIndexInformer: informer does not have map field namespaceToInformer", kind)
+	}
+	// Field is unexported, so it cannot be read directly via reflection, use
+	// unsafe so we can still call Interface() on the values it holds.
+	field = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem() //nolint:gosec // Using unsafe here is ~ fine.
+
+	sharedIndexInformers := make([]toolscache.SharedIndexInformer, 0, field.Len())
+	iter := field.MapRange()
+	for iter.Next() {
+		namespacedInformer, ok := iter.Value().Interface().(toolscache.SharedIndexInformer)
+		if !ok {
+			return nil, fmt.Errorf("failed to convert %s informer to SharedIndexInformer: field namespaceToInformer does not contain SharedIndexInformer", kind)
+		}
+		sharedIndexInformers = append(sharedIndexInformers, namespacedInformer)
+	}
+
+	// Note: In CAPI we only support two configurations:
+	// * CAPI watches all namespaces
+	// * CAPI watches a single namespace
+	// A multiNamespaceInformer is only used when CAPI watches a single namespace.
+	// For namespaced objects multiNamespaceInformer will contain a single namespaced informer
+	// For cluster-wide objects multiNamespaceInformer will contain a single cluster-wide informer.
+	// Accordingly, we are only handling these cases and avoid the complexity of handling e.g. when multiple namespaces are configured.
+
+	if len(sharedIndexInformers) != 1 {
+		return nil, fmt.Errorf("failed to convert %s informer to SharedIndexInformer: field namespaceToInformer contains multiple informers which is not supported", kind)
+	}
+
+	return sharedIndexInformers[0], nil
 }

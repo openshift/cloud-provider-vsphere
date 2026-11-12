@@ -23,7 +23,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -35,7 +35,7 @@ import (
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/controllers/external"
-	"sigs.k8s.io/cluster-api/internal/controllers/topology/machineset"
+	"sigs.k8s.io/cluster-api/core/reconcilers/machinedeployment/mdutil"
 	. "sigs.k8s.io/cluster-api/test/framework/ginkgoextensions"
 	"sigs.k8s.io/cluster-api/test/framework/internal/log"
 	"sigs.k8s.io/cluster-api/util"
@@ -289,7 +289,7 @@ func UpgradeMachineDeploymentInfrastructureRefAndWait(ctx context.Context, input
 
 	for _, deployment := range input.MachineDeployments {
 		// Get MachineSets of the MachineDeployment before the upgrade.
-		msListBeforeUpgrade, err := machineset.GetMachineSetsForDeployment(ctx, mgmtClient, client.ObjectKeyFromObject(deployment))
+		msListBeforeUpgrade, err := mdutil.GetMachineSetsForDeployment(ctx, mgmtClient, client.ObjectKeyFromObject(deployment))
 		Expect(err).ToNot(HaveOccurred())
 
 		log.Logf("Patching the new infrastructure ref to Machine Deployment %s", klog.KObj(deployment))
@@ -321,7 +321,7 @@ func UpgradeMachineDeploymentInfrastructureRefAndWait(ctx context.Context, input
 
 		Eventually(func(g Gomega) {
 			// Get MachineSets of the MachineDeployment after the upgrade.
-			msListAfterUpgrade, err := machineset.GetMachineSetsForDeployment(ctx, mgmtClient, client.ObjectKeyFromObject(deployment))
+			msListAfterUpgrade, err := mdutil.GetMachineSetsForDeployment(ctx, mgmtClient, client.ObjectKeyFromObject(deployment))
 			g.Expect(err).ToNot(HaveOccurred())
 
 			// Find the new MachineSet.
@@ -366,7 +366,7 @@ func UpgradeMachineDeploymentInPlaceMutableFieldsAndWait(ctx context.Context, in
 
 	for _, deployment := range input.MachineDeployments {
 		// Get MachineSet and Machines of the MachineDeployment before the upgrade.
-		msListBeforeUpgrade, err := machineset.GetMachineSetsForDeployment(ctx, mgmtClient, client.ObjectKeyFromObject(deployment))
+		msListBeforeUpgrade, err := mdutil.GetMachineSetsForDeployment(ctx, mgmtClient, client.ObjectKeyFromObject(deployment))
 		Expect(err).ToNot(HaveOccurred())
 		Expect(msListBeforeUpgrade).To(HaveLen(1), "expecting exactly 1 MachineSet")
 		machineSetBeforeUpgrade := msListBeforeUpgrade[0]
@@ -398,7 +398,7 @@ func UpgradeMachineDeploymentInPlaceMutableFieldsAndWait(ctx context.Context, in
 		log.Logf("Waiting for in-place propagation to complete")
 		Eventually(func(g Gomega) {
 			// Get MachineSet and Machines of the MachineDeployment after the upgrade.
-			msListAfterUpgrade, err := machineset.GetMachineSetsForDeployment(ctx, mgmtClient, client.ObjectKeyFromObject(deployment))
+			msListAfterUpgrade, err := mdutil.GetMachineSetsForDeployment(ctx, mgmtClient, client.ObjectKeyFromObject(deployment))
 			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(msListAfterUpgrade).To(HaveLen(1), "expecting exactly 1 MachineSet")
 			machineSetAfterUpgrade := msListAfterUpgrade[0]
@@ -537,7 +537,7 @@ func ScaleAndWaitMachineDeployment(ctx context.Context, input ScaleAndWaitMachin
 			return -1, err
 		}
 		if len(ms.Items) == 0 {
-			return -1, errors.New("no machinesets were found")
+			return -1, pkgerrors.New("no machinesets were found")
 		}
 		machineSet := ms.Items[0]
 		selectorMap, err = metav1.LabelSelectorAsMap(&machineSet.Spec.Selector)
@@ -555,7 +555,7 @@ func ScaleAndWaitMachineDeployment(ctx context.Context, input ScaleAndWaitMachin
 			}
 		}
 		if len(machines.Items) != nodeRefCount {
-			return -1, errors.New("Machine count does not match existing nodes count")
+			return -1, pkgerrors.New("Machine count does not match existing nodes count")
 		}
 		return nodeRefCount, nil
 	}, input.WaitForMachineDeployments...).Should(Equal(int(*input.MachineDeployment.Spec.Replicas)), "Timed out waiting for Machine Deployment %s to have %d replicas", klog.KObj(input.MachineDeployment), *input.MachineDeployment.Spec.Replicas)
@@ -595,7 +595,7 @@ func ScaleAndWaitMachineDeploymentV1Beta1(ctx context.Context, input ScaleAndWai
 			return -1, err
 		}
 		if len(ms.Items) == 0 {
-			return -1, errors.New("no machinesets were found")
+			return -1, pkgerrors.New("no machinesets were found")
 		}
 		machineSet := ms.Items[0]
 		selectorMap, err = metav1.LabelSelectorAsMap(&machineSet.Spec.Selector)
@@ -613,7 +613,7 @@ func ScaleAndWaitMachineDeploymentV1Beta1(ctx context.Context, input ScaleAndWai
 			}
 		}
 		if len(machines.Items) != nodeRefCount {
-			return -1, errors.New("Machine count does not match existing nodes count")
+			return -1, pkgerrors.New("Machine count does not match existing nodes count")
 		}
 		return nodeRefCount, nil
 	}, input.WaitForMachineDeployments...).Should(Equal(int(*input.MachineDeployment.Spec.Replicas)), "Timed out waiting for Machine Deployment %s to have %d replicas", klog.KObj(input.MachineDeployment), *input.MachineDeployment.Spec.Replicas)
@@ -673,7 +673,7 @@ func ScaleAndWaitMachineDeploymentTopology(ctx context.Context, input ScaleAndWa
 			return -1, err
 		}
 		if len(ms.Items) == 0 {
-			return -1, errors.New("no machinesets were found")
+			return -1, pkgerrors.New("no machinesets were found")
 		}
 		machineSet := ms.Items[0]
 		selectorMap, err = metav1.LabelSelectorAsMap(&machineSet.Spec.Selector)
@@ -691,7 +691,7 @@ func ScaleAndWaitMachineDeploymentTopology(ctx context.Context, input ScaleAndWa
 			}
 		}
 		if len(machines.Items) != nodeRefCount {
-			return -1, errors.New("Machine count does not match existing nodes count")
+			return -1, pkgerrors.New("Machine count does not match existing nodes count")
 		}
 		return nodeRefCount, nil
 	}, input.WaitForMachineDeployments...).Should(Equal(int(input.Replicas)), "Timed out waiting for Machine Deployment %s to have %d replicas", klog.KObj(&md), input.Replicas)
@@ -752,7 +752,7 @@ func ScaleAndWaitMachineDeploymentTopologyV1Beta1(ctx context.Context, input Sca
 			return -1, err
 		}
 		if len(ms.Items) == 0 {
-			return -1, errors.New("no machinesets were found")
+			return -1, pkgerrors.New("no machinesets were found")
 		}
 		machineSet := ms.Items[0]
 		selectorMap, err = metav1.LabelSelectorAsMap(&machineSet.Spec.Selector)
@@ -770,7 +770,7 @@ func ScaleAndWaitMachineDeploymentTopologyV1Beta1(ctx context.Context, input Sca
 			}
 		}
 		if len(machines.Items) != nodeRefCount {
-			return -1, errors.New("Machine count does not match existing nodes count")
+			return -1, pkgerrors.New("Machine count does not match existing nodes count")
 		}
 		return nodeRefCount, nil
 	}, input.WaitForMachineDeployments...).Should(Equal(int(input.Replicas)), "Timed out waiting for Machine Deployment %s to have %d replicas", klog.KObj(&md), input.Replicas)

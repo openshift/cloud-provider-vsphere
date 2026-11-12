@@ -28,7 +28,7 @@ import (
 	"github.com/blang/semver/v4"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -266,6 +266,26 @@ func ClusterUpgradeWithRuntimeSDKSpec(ctx context.Context, inputGetter func() Cl
 			WaitForMachinePools:          input.E2EConfig.GetIntervals(specName, "wait-machine-pool-nodes"),
 		}, clusterResources)
 
+		By("Recording Machines before the upgrade")
+		preUpgradeMachines := framework.GetMachinesByCluster(ctx, framework.GetMachinesByClusterInput{
+			Lister:      input.BootstrapClusterProxy.GetClient(),
+			ClusterName: clusterResources.Cluster.Name,
+			Namespace:   namespace.Name,
+		})
+		preUpgradeMachineNames := sets.New[string]()
+		for _, m := range preUpgradeMachines {
+			// Excluding MachinePool Machines as they are harder to reason about, e.g.
+			// we don't know if MachinePool Machines are supported by the infra provider.
+			if isMachinePoolMachine(m) {
+				continue
+			}
+			preUpgradeMachineNames.Insert(m.Name)
+		}
+
+		// Continuously track Machines for the duration of the upgrade so that we can check
+		// if there have been any unexpected Machine creations.
+		stopTrackingMachines := trackMachineNames(ctx, input.BootstrapClusterProxy.GetClient(), clusterResources.Cluster.Name, namespace.Name)
+
 		// Compute the upgrade plan that must be followed during the upgrade, so it can be validated step by step in the second
 		// part of the test.
 		// By default, the test assumes we are upgrading by one minor, however:
@@ -448,6 +468,16 @@ func ClusterUpgradeWithRuntimeSDKSpec(ctx context.Context, inputGetter func() Cl
 			log.Logf("Calling PostMachinesProvisioned for cluster %s", klog.KRef(namespace.Name, clusterResources.Cluster.Name))
 			input.PostUpgrade(input.BootstrapClusterProxy, namespace.Name, clusterResources.Cluster.Name)
 		}
+
+		Byf("Verify the expected number of Machines were created by the upgrade")
+		observedMachineNames := stopTrackingMachines()
+		newMachineNames := observedMachineNames.Difference(preUpgradeMachineNames)
+		// Each entry in the control-plane/workers upgrade plan corresponds to one rollout of all
+		// control-plane/worker Machines respectively.
+		expectedNewMachines := int64(len(controlPlaneUpgradePlan))*controlPlaneMachineCount + int64(len(workersUpgradePlan))*workerMachineCount
+		Expect(newMachineNames).To(HaveLen(int(expectedNewMachines)),
+			"Expected %d new Machines to be created by the upgrade, got %d: pre-upgrade Machines: %v, post-upgrade Machines: %v",
+			expectedNewMachines, len(newMachineNames), sets.List(preUpgradeMachineNames), sets.List(newMachineNames))
 
 		Byf("Verify Cluster Available condition is true")
 		framework.VerifyClusterAvailable(ctx, framework.VerifyClusterAvailableInput{
@@ -694,10 +724,10 @@ func checkLifecycleHookResponses(ctx context.Context, c client.Client, cluster *
 		for hookName, expectedResponse := range expectedHookResponses {
 			actualResponse, ok := responseData[hookName+"-actualResponseStatus"]
 			if !ok {
-				return errors.Errorf("hook %s call not recorded in configMap %s", hookName, klog.KRef(cluster.Namespace, hookResponsesConfigMapName(cluster.Name, extensionConfigName)))
+				return pkgerrors.Errorf("hook %s call not recorded in configMap %s", hookName, klog.KRef(cluster.Namespace, hookResponsesConfigMapName(cluster.Name, extensionConfigName)))
 			}
 			if expectedResponse != "" && expectedResponse != actualResponse {
-				return errors.Errorf("hook %s was expected to be %s in configMap got %s", hookName, expectedResponse, actualResponse)
+				return pkgerrors.Errorf("hook %s was expected to be %s in configMap got %s", hookName, expectedResponse, actualResponse)
 			}
 		}
 		return nil
@@ -709,7 +739,7 @@ func checkLifecycleHooksCalledAtLeastOnce(ctx context.Context, c client.Client, 
 	responseData := getLifecycleHookResponsesFromConfigMap(ctx, c, cluster, extensionConfigName)
 	hookName := computeHookName(hook, attributes)
 	if _, ok := responseData[hookName+"-actualResponseStatus"]; !ok {
-		return errors.Errorf("hook %s call not recorded in configMap %s", hookName, klog.KRef(cluster.Namespace, hookResponsesConfigMapName(cluster.Name, extensionConfigName)))
+		return pkgerrors.Errorf("hook %s call not recorded in configMap %s", hookName, klog.KRef(cluster.Namespace, hookResponsesConfigMapName(cluster.Name, extensionConfigName)))
 	}
 	return nil
 }
@@ -1142,7 +1172,7 @@ func runtimeHookTestHandler(ctx context.Context, c client.Client, cluster *clust
 			return err
 		}
 		if !topologyConditionCheck() {
-			return errors.Errorf("Blocking condition for %s not found on Cluster object", hookName)
+			return pkgerrors.Errorf("Blocking condition for %s not found on Cluster object", hookName)
 		}
 		return nil
 	}, 30*time.Second, 2*time.Second).Should(Succeed(), "%s has not been called", hookName)

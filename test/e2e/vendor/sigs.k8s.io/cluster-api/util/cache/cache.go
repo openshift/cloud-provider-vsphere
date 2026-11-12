@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	kcache "k8s.io/client-go/tools/cache"
+	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	runtimecatalog "sigs.k8s.io/cluster-api/api/runtime/catalog"
@@ -59,6 +59,9 @@ type Cache[E Entry] interface {
 	// Len returns the number of entries in the cache.
 	Len() int
 
+	// Delete deletes the given entry from the Cache.
+	Delete(entry E)
+
 	// DeleteAll deletes all entries from the cache.
 	DeleteAll()
 }
@@ -67,7 +70,7 @@ type Cache[E Entry] interface {
 // ttl is the duration for which we keep entries in the cache.
 func New[E Entry](ctx context.Context, ttl time.Duration) Cache[E] {
 	r := &cache[E]{
-		Store: kcache.NewTTLStore(func(obj any) (string, error) {
+		Store: toolscache.NewTTLStore(func(obj any) (string, error) {
 			// We only add objects of type E to the cache, so it's safe to cast to E.
 			return obj.(E).Key(), nil
 		}, ttl),
@@ -90,7 +93,7 @@ func New[E Entry](ctx context.Context, ttl time.Duration) Cache[E] {
 }
 
 type cache[E Entry] struct {
-	kcache.Store
+	toolscache.Store
 }
 
 // Add adds the given entry to the Cache.
@@ -114,6 +117,13 @@ func (r *cache[E]) Has(key string) (E, bool) {
 
 func (r *cache[E]) Len() int {
 	return len(r.ListKeys())
+}
+
+// Delete deletes the given entry to the Cache.
+func (r *cache[E]) Delete(entry E) {
+	// Note: We can ignore the error here because the key func we pass into NewTTLStore never
+	// returns errors.
+	_ = r.Store.Delete(entry)
 }
 
 func (r *cache[E]) DeleteAll() {

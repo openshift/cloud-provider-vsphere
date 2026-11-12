@@ -26,8 +26,12 @@ import (
 )
 
 const (
-	// MachineSetTopologyFinalizer is the finalizer used by the topology MachineDeployment controller to
+	// MachineSetTopologyFinalizer was the finalizer used by the topology MachineSet controller to
 	// clean up referenced template resources if necessary when a MachineSet is being deleted.
+	//
+	// Deprecated: The topology MachineSet controller has been merged into the MachineSet controller,
+	// which now handles the cleanup based on MachineSetFinalizer. This finalizer is not set anymore and is only
+	// removed by the MachineSet controller from MachineSets which still have it.
 	MachineSetTopologyFinalizer = "machineset.topology.cluster.x-k8s.io"
 
 	// MachineSetFinalizer is the finalizer used by the MachineSet controller to
@@ -57,6 +61,21 @@ const (
 	// Note: This annotation is used in pair with PendingAcknowledgeMoveAnnotation on Machines.
 	AcknowledgedMoveAnnotation = "in-place-updates.internal.cluster.x-k8s.io/acknowledged-move"
 )
+
+// MachineSetMoveMachinesToMachineSetAnnotationData is used to store data about the in-place update in the MachineSetMoveMachinesToMachineSetAnnotation.
+// +kubebuilder:object:generate=false
+type MachineSetMoveMachinesToMachineSetAnnotationData struct {
+	// name of the MachineSet where the machines should be moved to.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
+
+	// affectsAvailability indicates if the in-place update affects availability of the Machine.
+	// Default is true.
+	// +optional
+	AffectsAvailability *bool `json:"affectsAvailability,omitempty"`
+}
 
 // MachineSetSpec defines the desired state of MachineSet.
 type MachineSetSpec struct {

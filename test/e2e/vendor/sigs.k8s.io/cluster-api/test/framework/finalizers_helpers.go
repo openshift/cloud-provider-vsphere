@@ -22,7 +22,7 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -47,19 +47,10 @@ var CoreFinalizersAssertionWithLegacyClusters = map[string]func(types.Namespaced
 }
 
 // CoreFinalizersAssertionWithClassyClusters maps Cluster API core types to their expected finalizers for classy Clusters.
-var CoreFinalizersAssertionWithClassyClusters = func() map[string]func(types.NamespacedName) []string {
-	r := map[string]func(types.NamespacedName) []string{}
-	for k, v := range CoreFinalizersAssertionWithLegacyClusters {
-		r[k] = v
-	}
-	r[machineSetKind] = func(_ types.NamespacedName) []string {
-		return []string{clusterv1.MachineSetTopologyFinalizer, clusterv1.MachineSetFinalizer}
-	}
-	r[machineDeploymentKind] = func(_ types.NamespacedName) []string {
-		return []string{clusterv1.MachineDeploymentTopologyFinalizer, clusterv1.MachineDeploymentFinalizer}
-	}
-	return r
-}()
+// Note: The topology MachineDeployment and MachineSet controllers have been merged into the MachineDeployment and MachineSet
+// controllers. Because of that classy Clusters don't have additional finalizers on MachineDeployments and MachineSets anymore,
+// so the expected finalizers are the same as for legacy Clusters.
+var CoreFinalizersAssertionWithClassyClusters = CoreFinalizersAssertionWithLegacyClusters
 
 // ExpFinalizersAssertion maps experimental resource types to their expected finalizers.
 var ExpFinalizersAssertion = map[string]func(types.NamespacedName) []string{
@@ -143,7 +134,7 @@ func checkObjectsWithFinalizers(ctx context.Context, proxy ClusterProxy, namespa
 		obj.SetKind(node.Object.Kind)
 		err = proxy.GetClient().Get(ctx, nodeNamespacedName, obj)
 		if err != nil {
-			return errors.Wrapf(err, "failed to get object %s, %s", node.Object.Kind, klog.KRef(node.Object.Namespace, node.Object.Name))
+			return pkgerrors.Wrapf(err, "failed to get object %s, %s", node.Object.Kind, klog.KRef(node.Object.Namespace, node.Object.Name))
 		}
 
 		// assert if the expected finalizers are set on the resource (including also checking if there are unexpected finalizers)

@@ -22,7 +22,7 @@ import (
 	"os"
 
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	kindv1 "sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
 	kind "sigs.k8s.io/kind/pkg/cluster"
 	"sigs.k8s.io/kind/pkg/cmd"
@@ -36,7 +36,7 @@ const (
 	DefaultNodeImageRepository = "kindest/node"
 
 	// DefaultNodeImageVersion is the default Kubernetes version to be used for creating a kind cluster.
-	DefaultNodeImageVersion = "v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
+	DefaultNodeImageVersion = "v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
 )
 
 // KindClusterOption is a NewKindClusterProvider option.
@@ -211,7 +211,7 @@ apiServer:
 		errStr := fmt.Sprintf("Failed to create kind cluster %q: %v", k.name, err)
 		// Extract the details of the RunError, if the cluster creation was triggered by a RunError.
 		var runErr *exec.RunError
-		if errors.As(err, &runErr) {
+		if pkgerrors.As(err, &runErr) {
 			errStr += "\n" + string(runErr.Output)
 		}
 		Expect(err).ToNot(HaveOccurred(), errStr)
